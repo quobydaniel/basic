@@ -5,7 +5,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
-import { draftChatReplies, autoPilotReply } from "@/lib/ai.functions";
+import { draftChatReplies, autoPilotReply, placeChatOrder } from "@/lib/ai.functions";
+import { acquireAutoPilot, releaseAutoPilot } from "@/lib/autopilot-lock";
 import { formatGHS } from "@/lib/format";
 import { toast } from "sonner";
 
@@ -62,6 +63,9 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   const [drafts, setDrafts] = useState<string[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
   const [showOrderPanel, setShowOrderPanel] = useState(false);
+  const [buyQty, setBuyQty] = useState(1);
+  const [buying, setBuying] = useState(false);
+  const placeOrder = useServerFn(placeChatOrder);
   const [orderTotal, setOrderTotal] = useState("");
   const [fulfillment, setFulfillment] = useState("meet_in_person");
   const [paymentTerm, setPaymentTerm] = useState("pay_on_delivery");
@@ -227,6 +231,27 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
       toast.error("AI unavailable");
     } finally {
       setAiBusy(false);
+    }
+  }
+
+  // BUYER: one-tap "Place order" — closes the deal from the conversation.
+  async function placeMyOrder() {
+    if (!user || buying) return;
+    setBuying(true);
+    try {
+      const res = (await placeOrder({ data: { conversation_id: conversationId, quantity: buyQty } })) as any;
+      await supabase.from("messages" as any).insert({
+        conversation_id: conversationId,
+        sender_id: user.id,
+        kind: "text",
+        body: `Order placed — ${res.quantity}× ${res.title} (${formatGHS(res.total, { currency: res.currency })}). I'll track it in my Orders.`,
+      });
+      toast.success(`Order #${res.order_number} placed — see it in your Orders`);
+      qc.invalidateQueries({ queryKey: ["msgs", conversationId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not place the order");
+    } finally {
+      setBuying(false);
     }
   }
 
@@ -396,6 +421,11 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
                 <div key={m.id} className="mx-auto my-1 max-w-sm rounded-2xl border border-[var(--gold)]/40 bg-[var(--gold)]/10 px-4 py-2.5 text-center">
                   <p className="text-xs font-medium">{m.body}</p>
                   <p className="mt-0.5 text-[10px] text-muted-foreground">{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+                  {isSeller && (m as any).metadata?.order_id && (
+                    <Link to="/dashboard/orders" className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[var(--gold)] px-3 py-1 text-[11px] font-bold text-[var(--gold-foreground)] hover:opacity-90">
+                      Confirm / update order →
+                    </Link>
+                  )}
                 </div>
               );
             }
@@ -484,6 +514,25 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* BUYER: one-tap order closer */}
+      {!isSeller && product && (
+        <div className="flex items-center gap-2 border-t border-border bg-card px-3 py-2">
+          <div className="flex items-center gap-1 rounded-full border border-border bg-background px-1 py-0.5">
+            <button onClick={() => setBuyQty((q) => Math.max(1, q - 1))} className="grid h-7 w-7 place-items-center rounded-full text-muted-foreground hover:bg-accent" aria-label="Fewer">−</button>
+            <span className="w-6 text-center text-sm font-semibold">{buyQty}</span>
+            <button onClick={() => setBuyQty((q) => Math.min(99, q + 1))} className="grid h-7 w-7 place-items-center rounded-full text-muted-foreground hover:bg-accent" aria-label="More">+</button>
+          </div>
+          <button
+            onClick={placeMyOrder}
+            disabled={buying}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-gold py-2 text-sm font-bold text-gold-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
+            <CheckCheck className="h-4 w-4" />
+            {buying ? "Placing…" : `Place order · ${formatGHS((product.base_price ?? 0) * buyQty, { currency: product.currency })}`}
+          </button>
         </div>
       )}
 
