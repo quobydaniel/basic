@@ -1,0 +1,5 @@
+# Bun configuration. The original Lovable project enforced a 24h supply-chain
+# guard (`minimumReleaseAge = 86400`) plus Lovable-only excludes. We drop it
+# here: pin versions you trust in package.json, and `bun update --dry-run` to
+# review before bumping.
+[install]
