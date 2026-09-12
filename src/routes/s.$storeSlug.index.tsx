@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
 import { ProductCardTile } from "./index";
-import { MapPin } from "lucide-react";
+import { StoreLocationCard } from "@/components/StoreChrome";
+import { MapPin, BadgeCheck } from "lucide-react";
 
 export const Route = createFileRoute("/s/$storeSlug/")({
   component: StorefrontPage,
@@ -17,12 +18,12 @@ function StorefrontPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("stores")
-        .select("id, slug, name, tagline, description, logo_url, banner_url, country, currency, status, plan")
+        .select("id, slug, name, tagline, description, logo_url, banner_url, country, currency, status, plan, kyc_verified, area, city, region")
         .eq("slug", storeSlug)
         .maybeSingle();
       if (error) throw error;
       if (!data) throw notFound();
-      return data;
+      return (data as any);
     },
   });
 
@@ -73,19 +74,37 @@ function StorefrontPage() {
             <div className="pb-2">
               <h1 className="font-display text-3xl leading-tight md:text-4xl">
                 {s.name}
+                {(s as any).kyc_verified && (
+                  <span className="ml-3 inline-flex items-center gap-1 rounded-full bg-gold px-2.5 py-1 align-middle text-[10px] font-bold uppercase tracking-wide text-[var(--gold-foreground)]" title="Identity verified by BASIC (KYC)">
+                    <BadgeCheck className="h-3 w-3" /> Verified seller
+                  </span>
+                )}
                 {s.plan === "pro" && (
                   <span className="ml-3 inline-block rounded-full bg-[var(--gold)] px-2.5 py-1 align-middle text-[10px] font-bold uppercase tracking-wide text-[var(--gold-foreground)]">Pro</span>
                 )}
               </h1>
               {s.tagline && <p className="text-sm text-muted-foreground md:text-base">{s.tagline}</p>}
-              <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                <MapPin className="h-3 w-3" /> Ghana · Ships worldwide
-              </p>
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([s.name, s.area, s.city].filter(Boolean).join(" "))}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-gold/60 hover:text-foreground"
+              >
+                <MapPin className="h-3 w-3" />
+                {(s.area || s.city) ? [s.area, s.city].filter(Boolean).join(", ") : "Ghana · Ships worldwide"}
+                {(s.area || s.city) && <span className="font-semibold text-gold">· Directions →</span>}
+              </a>
             </div>
           </div>
           {s.description && <p className="mt-4 max-w-2xl text-sm leading-relaxed text-foreground/85">{s.description}</p>}
         </div>
       </section>
+
+      {(s.area || s.city || s.region) && (
+        <div className="mt-8 px-4 md:px-8">
+          <StoreLocationCard area={s.area} city={s.city} region={s.region} name={s.name} />
+        </div>
+      )}
 
       <div className="mt-8 px-4 md:px-8">
         <h2 className="font-display text-2xl">All products</h2>

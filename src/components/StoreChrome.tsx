@@ -4,10 +4,11 @@
 // shop assistant that speaks for the seller, takes orders in chat — Pro
 // feature, enforced server-side and gated in the UI.
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Check, ChevronRight, Loader2, Lock, Send, Share2, Sparkles, Store as StoreIcon, X } from "lucide-react";
-import { buyerAssistant } from "@/lib/ai.functions";
+import { Check, ChevronRight, Loader2, Lock, MapPin, Send, Share2, ShoppingBag, Sparkles, Store as StoreIcon, X } from "lucide-react";
+import { buyerAssistant, placeAssistantOrder } from "@/lib/ai.functions";
 import { formatGHS } from "@/lib/format";
 import { toast } from "sonner";
 
@@ -79,18 +80,38 @@ export function StoreTopBar({ store, shareTitle }: { store: StoreLite; shareTitl
 
 type AssistantMsg = { role: "user" | "assistant"; content: string };
 type AssistantProduct = { id: string; slug: string; title: string; base_price: number; currency: string; image?: string | null };
+type PendingOrder = {
+  product_slug: string;
+  quantity: number;
+  variant: string | null;
+  delivery: string | null;
+  payment: string | null;
+};
+type PlacedOrder = {
+  order_id: string;
+  order_number: string;
+  total: number;
+  quantity: number;
+  title: string;
+  currency: string;
+};
 
 /** Pro-gated AI shop assistant — speaks for the seller, takes orders in chat. */
-export function StoreAssistant({ store }: { store: StoreLite }) {
+export function StoreAssistant({ store, product }: { store: StoreLite; product?: { slug: string; title: string } }) {
   const isPro = store.plan === "pro";
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<AssistantMsg[]>([]);
   const [products, setProducts] = useState<AssistantProduct[]>([]);
+  const [pendingOrder, setPendingOrder] = useState<PendingOrder | null>(null);
+  const [placing, setPlacing] = useState(false);
+  const [placed, setPlaced] = useState<PlacedOrder | null>(null);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const chat = useServerFn(buyerAssistant);
+  const placeAssistantOrderFn = useServerFn(placeAssistantOrder);
   const scrollRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const loc = useLocation();
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -104,15 +125,51 @@ export function StoreAssistant({ store }: { store: StoreLite }) {
     setInput("");
     setBusy(true);
     try {
-      const res = (await chat({ data: { messages: next, store_slug: store.slug } })) as any;
+      const res = (await chat({
+        data: {
+          messages: next,
+          store_slug: store.slug,
+          page_context: product ? "product" : "store",
+          page_path: loc.href.slice(0, 300),
+          page_product: product,
+        },
+      })) as any;
       setMessages([...next, { role: "assistant" as const, content: res.reply ?? "" }]);
       setProducts(res.products ?? []);
+      if (res.orderReady) {
+        setPlaced(null);
+        setPendingOrder(res.orderReady);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Assistant unavailable";
       toast.error(msg.includes("Pro") ? msg : "Assistant unavailable");
       setMessages(messages);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function confirmOrder() {
+    if (!pendingOrder || placing) return;
+    setPlacing(true);
+    try {
+      const res = (await placeAssistantOrderFn({
+        data: {
+          store_slug: store.slug,
+          product_slug: pendingOrder.product_slug,
+          quantity: pendingOrder.quantity,
+          variant: pendingOrder.variant ?? undefined,
+          delivery: pendingOrder.delivery ?? undefined,
+          payment: pendingOrder.payment ?? undefined,
+        },
+      })) as any;
+      setPlaced(res);
+      setPendingOrder(null);
+      setMessages((m) => [...m, { role: "assistant" as const, content: `Order #${res.order_number} placed — ${res.quantity}× ${res.title} for ${formatGHS(res.total, { currency: res.currency })}. Track it in your Orders.` }]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not place the order");
+    } finally {
+      setPlacing(false);
     }
   }
 
@@ -224,6 +281,53 @@ export function StoreAssistant({ store }: { store: StoreLite }) {
                     ))}
                   </div>
                 )}
+                {pendingOrder && !placed && (
+                  <div className="rounded-2xl border border-gold/50 bg-gold/5 p-3">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider" style={{ color: accent }}>
+                      <ShoppingBag className="h-3.5 w-3.5" /> Confirm your order
+                    </p>
+                    <div className="mt-2 space-y-1 text-xs text-foreground">
+                      <p>
+                        <span className="text-muted-foreground">Item:</span>{" "}
+                        {products.find((p) => p.slug === pendingOrder.product_slug)?.title ?? pendingOrder.product_slug}
+                        {pendingOrder.variant && <> · {pendingOrder.variant}</>}
+                      </p>
+                      <p><span className="text-muted-foreground">Qty:</span> {pendingOrder.quantity}</p>
+                      {pendingOrder.delivery && <p><span className="text-muted-foreground">Delivery area:</span> {pendingOrder.delivery}</p>}
+                      {pendingOrder.payment && <p><span className="text-muted-foreground">Payment:</span> {pendingOrder.payment}</p>}
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={confirmOrder}
+                        disabled={placing}
+                        className="flex-1 rounded-full py-2 text-xs font-bold uppercase tracking-wider text-black disabled:opacity-60"
+                        style={{ background: accent }}
+                      >
+                        {placing ? "Placing…" : "Confirm order"}
+                      </button>
+                      <button
+                        onClick={() => setPendingOrder(null)}
+                        className="rounded-full border border-border px-3 py-2 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Change
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {placed && (
+                  <div className="flex items-start gap-2 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                    <div className="min-w-0 text-xs">
+                      <p className="font-semibold text-emerald-500">Order #{placed.order_number} placed</p>
+                      <p className="mt-0.5 text-muted-foreground">
+                        {placed.quantity}× {placed.title} — {formatGHS(placed.total, { currency: placed.currency })}
+                      </p>
+                      <Link to="/orders" className="mt-1.5 inline-flex items-center gap-1 font-semibold text-foreground underline">
+                        Track it in Orders <ChevronRight className="h-3 w-3" />
+                      </Link>
+                    </div>
+                  </div>
+                )}
                 {busy && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking the shelves…
@@ -261,5 +365,74 @@ export function StoreAssistant({ store }: { store: StoreLite }) {
         </div>
       )}
     </>
+  );
+}
+
+
+/** Storefront location card: OpenStreetMap embed (keyless) geocoded from the
+ *  store's area/city, plus a Google Maps directions link. Renders nothing
+ *  when the store has no location set. */
+export function StoreLocationCard({
+  area,
+  city,
+  region,
+  name,
+}: {
+  area?: string | null;
+  city?: string | null;
+  region?: string | null;
+  name: string;
+}) {
+  const label = [area, city || region].filter(Boolean).join(", ");
+  const geo = useQuery({
+    queryKey: ["store-geocode", label],
+    enabled: !!label,
+    staleTime: Infinity,
+    retry: 1,
+    queryFn: async () => {
+      const q = encodeURIComponent([area, city, region, "Ghana"].filter(Boolean).join(", "));
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${q}`);
+      if (!res.ok) throw new Error("geocode failed");
+      const j = (await res.json()) as { lat: string; lon: string }[];
+      return j?.[0] ? { lat: parseFloat(j[0].lat), lon: parseFloat(j[0].lon) } : null;
+    },
+  });
+
+  if (!label) return null;
+  const gmaps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([name, area, city].filter(Boolean).join(" "))}`;
+  const pos = geo.data;
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">
+      {pos ? (
+        <iframe
+          title={`Map — ${name}`}
+          className="h-52 w-full border-0"
+          loading="lazy"
+          src={`https://www.openstreetmap.org/export/embed.html?bbox=${(pos.lon - 0.012).toFixed(5)}%2C${(pos.lat - 0.008).toFixed(5)}%2C${(pos.lon + 0.012).toFixed(5)}%2C${(pos.lat + 0.008).toFixed(5)}&layer=mapnik&marker=${pos.lat}%2C${pos.lon}`}
+        />
+      ) : (
+        <div className="grid h-40 place-items-center bg-muted/50 text-xs text-muted-foreground">
+          {geo.isLoading ? "Loading map…" : "Map unavailable — use Directions below"}
+        </div>
+      )}
+      <div className="flex items-center gap-3 p-4">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gold/15 text-gold">
+          <MapPin className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">Where to find us</p>
+          <p className="truncate text-xs text-muted-foreground">{label}</p>
+        </div>
+        <a
+          href={gmaps}
+          target="_blank"
+          rel="noreferrer"
+          className="shrink-0 rounded-full border border-gold/50 px-3 py-1.5 text-xs font-semibold text-gold transition-colors hover:bg-gold/10"
+        >
+          Directions →
+        </a>
+      </div>
+    </div>
   );
 }

@@ -1162,3 +1162,113 @@ ${orderLines ? `- Recent orders:\n${orderLines}` : "- No orders yet."}
 
     return { reply: result.text.trim() };
   });
+
+// ---------------- Place assistant order ----------------
+// Called ONLY from the storefront assistant's "Confirm order" card. Buyer-
+// signed-in; the AI already gathered + confirmed item, qty, variant,
+// delivery area and payment. Server validates everything against live data
+// (store active, product in this store, active, computes the total itself —
+// the AI never sees or decides prices) and inserts the order as pending.
+export const placeAssistantOrder = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((raw: unknown) =>
+    z
+      .object({
+        store_slug: z.string().max(120),
+        product_slug: z.string().max(300),
+        quantity: z.number().int().min(1).max(99),
+        variant: z.string().max(300).optional(),
+        delivery: z.string().max(300).optional(),
+        payment: z.string().max(120).optional(),
+      })
+      .parse(raw),
+  )
+  .handler(async ({ data, context }) => {
+    const { data: store } = await context.supabase
+      .from("stores")
+      .select("id, name, currency, owner_id")
+      .eq("slug", data.store_slug)
+      .eq("status", "active")
+      .maybeSingle();
+    const storeRow = store as any;
+    if (!storeRow) throw new Error("Store not found");
+
+    const { data: product } = await context.supabase
+      .from("products")
+      .select("id, slug, title, base_price, currency, status")
+      .eq("store_id", storeRow.id)
+      .eq("slug", data.product_slug)
+      .eq("status", "active")
+      .maybeSingle();
+    const prod = product as any;
+    if (!prod) throw new Error("That product isn't available from this store");
+
+    const unit = Number(prod.base_price);
+    if (!Number.isFinite(unit) || unit <= 0) throw new Error("Product price is invalid");
+    const total = Number((unit * data.quantity).toFixed(2));
+    if (total <= 0 || total > 10_000_000) throw new Error("Order total looks wrong");
+
+    const paymentText = (data.payment ?? "").toLowerCase();
+    const paymentTerm = paymentText.includes("escrow")
+      ? "escrow"
+      : paymentText.includes("before") || paymentText.includes("momo") || paymentText.includes("mobile money") || paymentText.includes("card")
+        ? "pay_before_delivery"
+        : paymentText.includes("delivery") || paymentText.includes("cod") || paymentText.includes("cash")
+          ? "pay_on_delivery"
+          : null;
+
+    const notesBits = [
+      data.variant ? `Variant: ${data.variant}` : null,
+      data.delivery ? `Delivery area: ${data.delivery}` : null,
+      data.payment ? `Payment preference: ${data.payment}` : null,
+      "Placed by AI assistant",
+    ].filter(Boolean);
+
+    const { data: order, error: oErr } = await context.supabase
+      .from("orders" as any)
+      .insert({
+        store_id: storeRow.id,
+        buyer_id: context.userId,
+        status: "pending",
+        subtotal: total,
+        total,
+        currency: prod.currency ?? storeRow.currency ?? "GHS",
+        source: "ai_assistant",
+        fulfillment_type: data.delivery ? "delivery" : "meet_in_person",
+        payment_term: paymentTerm,
+        notes: notesBits.join(" · "),
+      } as any)
+      .select("id, order_number")
+      .single();
+    if (oErr) throw new Error(oErr.message ?? "Could not create the order");
+    const orderRow = order as any;
+
+    const { error: itemErr } = await context.supabase.from("order_items").insert({
+      order_id: orderRow.id,
+      product_title: prod.title,
+      quantity: data.quantity,
+      unit_price: unit,
+      total,
+      variant_title: data.variant ?? null,
+    });
+    if (itemErr) throw new Error(itemErr.message ?? "Could not record the item");
+
+    try {
+      await context.supabase.from("notifications").insert({
+        user_id: storeRow.owner_id,
+        kind: "order",
+        title: "New AI order placed",
+        body: `Order #${orderRow.order_number} — ${data.quantity}× ${prod.title} for ${prod.currency ?? storeRow.currency ?? "GHS"} ${total} was placed via the AI assistant.`,
+        payload: { order_id: orderRow.id, order_number: orderRow.order_number },
+      });
+    } catch {}
+
+    return {
+      order_id: orderRow.id,
+      order_number: orderRow.order_number,
+      total,
+      quantity: data.quantity,
+      title: prod.title,
+      currency: prod.currency ?? "GHS",
+    };
+  });

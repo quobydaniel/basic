@@ -255,7 +255,11 @@ function ProductPage() {
           </div>
           <h1 className="mt-2 font-display text-3xl leading-tight md:text-4xl">{product.title}</h1>
           <div className="mt-2 flex items-center gap-2">
+            {(product as any).negotiable ? (
+            <p className="font-display text-2xl text-gold">Price negotiable — chat with the seller</p>
+          ) : (
             <p className="font-display text-2xl">{formatGHS(price, { currency: product.currency })}</p>
+          )}
             {reviews.data && reviews.data.rows.length > 0 && (
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Stars rating={reviews.data.avg} size="xs" /> {reviews.data.avg.toFixed(1)} ({reviews.data.rows.length})

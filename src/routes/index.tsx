@@ -379,7 +379,7 @@ export function ProductCardTile({ p }: { p: ProductCard }) {
         <p className="line-clamp-1 font-display text-[16px]">{p.title}</p>
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-gold">
-            {formatGHS(p.base_price, { currency: p.currency })}
+            {(p as any).negotiable ? "Chat for price" : formatGHS(p.base_price, { currency: p.currency })}
           </p>
           <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
             <Star className="h-3 w-3 fill-gold text-gold" />

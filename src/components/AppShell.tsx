@@ -107,6 +107,9 @@ function TopBar() {
               and follow every seller storefront on BASIC. Sellers reach their
               own store via the store icon in the masthead cluster. */}
           <DesktopLink to="/stores" label="Stores" />
+          <Link to="/pricing" className="gold-rule pb-1.5 text-[11px] font-semibold uppercase tracking-[0.3em] text-gold transition-opacity hover:opacity-80">
+            ✦ Premium
+          </Link>
         </nav>
       </div>
     </header>
