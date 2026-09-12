@@ -78,7 +78,7 @@ function TopBar() {
 
           <Link to="/" className="group flex flex-col items-center">
             <span className="font-display text-[26px] leading-none tracking-[0.32em] text-foreground transition-colors group-hover:text-gold md:text-3xl">
-              SELLIO
+              BASIC
             </span>
             <span className="mt-1.5 h-px w-16 bg-gradient-to-r from-transparent via-gold to-transparent transition-all duration-500 group-hover:w-28" />
           </Link>
@@ -182,7 +182,7 @@ function SiteFooter() {
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-12 md:grid-cols-[1.4fr_1fr_1fr_1fr] md:px-8">
         <div>
           <Link to="/" className="inline-block">
-            <span className="font-display text-xl leading-none tracking-[0.32em] text-foreground">SELLIO</span>
+            <span className="font-display text-xl leading-none tracking-[0.32em] text-foreground">B A S I C</span>
             <span className="mt-1.5 block h-px w-14 bg-gradient-to-r from-transparent via-gold to-transparent" />
           </Link>
           <p className="mt-3 max-w-xs text-[13px] leading-relaxed text-muted-foreground">
