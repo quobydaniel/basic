@@ -5,7 +5,14 @@
 --    delivered-only; notifies the store owner.
 
 -- ---------------------------------------------------------------- order_events
-CREATE TABLE IF NOT EXISTS public.order_events (
+-- Reconcile with phase1_core (2026-07-07), which already created an
+-- order_events table with a different shape (kind/message/data). That legacy
+-- shape was never wired up — no trigger ever wrote it and no client reads it
+-- (zero rows in production). Drop it so the intended order-tracking shape
+-- below is what actually exists (also fixes fresh installs that run all
+-- migrations in order, which would otherwise hit this same collision).
+DROP TABLE IF EXISTS public.order_events CASCADE;
+CREATE TABLE public.order_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id uuid NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
   status public.order_status NOT NULL,
