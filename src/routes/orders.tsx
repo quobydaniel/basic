@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { CheckCircle2, Loader2, Package, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
@@ -77,18 +78,24 @@ function OrderTimeline({
 function OrdersPage() {
   const { user, loading } = useSession();
   const qc = useQueryClient();
+  // Status buckets — 15 pending cards in a row is noise; buyers think in
+  // "what's moving" vs "what's done".
+  const [bucket, setBucket] = useState<"all" | "active" | "done">("all");
+  const isActiveStatus = (s: string) => ["pending", "paid", "fulfilled", "shipped"].includes(s);
 
   const orders = useQuery({
     queryKey: ["buyer-orders", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Cast: the generated types are stale (they choke on store_id here and
+      // already carry 8 baseline errors elsewhere) — runtime is fine.
+      const { data, error } = await (supabase as any)
         .from("orders")
-        .select("id, order_number, status, total, currency, created_at, updated_at, buyer_confirmed_at, fulfillment_type, payment_term, store:stores(slug, name), order_items(product_title, quantity)")
+        .select("id, order_number, status, total, currency, created_at, updated_at, buyer_confirmed_at, fulfillment_type, payment_term, store_id, store:stores(slug, name), order_items(product_title, quantity)")
         .eq("buyer_id", user!.id)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as any[];
     },
   });
 
@@ -126,6 +133,23 @@ function OrdersPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not confirm"),
   });
 
+  // The buyer's existing conversations, by store — orders link straight
+  // back into the chat where the deal was made.
+  const convoByStore = useQuery({
+    queryKey: ["buyer-convo-map", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("conversations")
+        .select("id, store_id")
+        .eq("buyer_id", user!.id);
+      if (error) return {} as Record<string, string>;
+      const map: Record<string, string> = {};
+      for (const c of data ?? []) map[c.store_id as string] = c.id as string;
+      return map;
+    },
+  });
+
   // Rider leg: delivery_requests created when the seller ships (or files one
   // manually). Missing table / no rows just means "no rider assigned yet".
   const deliveryByOrder = useQuery({
@@ -154,11 +178,42 @@ function OrdersPage() {
     cancelled: "Delivery cancelled",
   };
 
+  const all = orders.data ?? [];
+  const counts = {
+    all: all.length,
+    active: all.filter((o: any) => isActiveStatus(o.status)).length,
+    done: all.filter((o: any) => o.status === "delivered").length,
+  };
+  const visible = all.filter((o: any) =>
+    bucket === "all" ? true : bucket === "active" ? isActiveStatus(o.status) : o.status === "delivered",
+  );
+
   return (
     <AppShell>
       <div className="px-4 pt-4 md:px-8 md:pt-8">
         <h1 className="font-display text-3xl">Orders</h1>
         <p className="mt-1 text-sm text-muted-foreground">Track everything you've bought on BASIC.</p>
+        {counts.all > 0 && (
+          <div className="mt-3 flex gap-1.5">
+            {([
+              ["all", `All${counts.all ? ` · ${counts.all}` : ""}`],
+              ["active", `In progress${counts.active ? ` · ${counts.active}` : ""}`],
+              ["done", `Delivered${counts.done ? ` · ${counts.done}` : ""}`],
+            ] as const).map(([b, label]) => (
+              <button
+                key={b}
+                onClick={() => setBucket(b)}
+                className={`rounded-full px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] transition-colors ${
+                  bucket === b
+                    ? "bg-[var(--gold)] text-[var(--gold-foreground)]"
+                    : "border border-border text-muted-foreground hover:border-gold/40 hover:text-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {loading ? null : !user ? (
@@ -176,14 +231,31 @@ function OrdersPage() {
         </div>
       ) : (
         <ul className="mt-4 space-y-2 px-4 md:px-8">
-          {orders.data!.map((o: any) => (
+          {visible.length === 0 && (
+            <p className="col-span-full py-6 text-center text-sm text-muted-foreground">
+              Nothing in this bucket right now.
+            </p>
+          )}
+          {visible.map((o: any) => (
             <li key={o.id} className="rounded-2xl border border-border bg-card p-4">
               <div className="flex items-baseline justify-between">
-                <p className="font-medium">#{o.order_number}</p>
+                <p className="font-medium">{o.order_number}</p>
                 <p className="font-display text-lg">{formatGHS(o.total, { currency: o.currency })}</p>
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {new Date(o.created_at).toLocaleDateString()} · {o.store?.name}
+                {convoByStore.data?.[o.store_id as string] && (
+                  <>
+                    {" · "}
+                    <Link
+                      to="/chat/$conversationId"
+                      params={{ conversationId: convoByStore.data![o.store_id as string] }}
+                      className="font-semibold text-gold hover:underline"
+                    >
+                      Open chat
+                    </Link>
+                  </>
+                )}
               </p>
               {(o.fulfillment_type || o.payment_term) && (
                 <p className="mt-1 flex flex-wrap gap-1">
@@ -199,9 +271,14 @@ function OrdersPage() {
                   )}
                 </p>
               )}
-              <p className="mt-2 text-xs text-muted-foreground">
-                {(o.order_items ?? []).map((it: any) => `${it.quantity}× ${it.product_title}`).join(", ")}
-              </p>
+              {/* Items — render only when the order actually has them; a few
+                  legacy/AI-era orders carry no order_items rows and an empty
+                  line here just reads as a glitch. */}
+              {(o.order_items ?? []).length > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {(o.order_items ?? []).map((it: any) => `${it.quantity}× ${it.product_title}`).join(", ")}
+                </p>
+              )}
 
               <OrderTimeline
                 status={o.status}
