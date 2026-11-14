@@ -18,7 +18,7 @@ import { createNvidiaNimProvider } from "@/lib/ai-gateway.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { AI_MODELS, type AiFnName } from "@/lib/models.server";
-import { generateText } from "ai";
+import { generateText } from "@/lib/ai-gateway.server";
 import { z } from "zod";
 
 
