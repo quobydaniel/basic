@@ -13,6 +13,7 @@ import {
   Users,
   Sparkles,
   Eye,
+  Wand2,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -145,11 +146,11 @@ function CreateStore() {
 /* -------------------------------------------------------------------------- */
 
 const STATUS_COLORS: Record<string, string> = {
-  paid: "var(--sage)",
-  pending: "var(--gold)",
+  paid: "var(--gild)", // money metal
+  pending: "var(--gold)", // lemon — action needed
   packed: "var(--terracotta)",
   shipped: "var(--ink)",
-  delivered: "var(--primary)",
+  delivered: "var(--sage)",
   cancelled: "var(--destructive)",
 };
 
@@ -275,11 +276,20 @@ function StoreOverview({ store }: { store: any }) {
 
   return (
     <div className="p-4 pb-24 md:p-8">
-      {/* Header */}
+      {/* Store identity — monogram, name, live storefront door */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Your store</p>
-          <h1 className="mt-1 font-display text-3xl">{store.name}</h1>
+        <div className="flex items-center gap-3">
+          {store.logo_url ? (
+            <img src={store.logo_url} alt="" className="h-12 w-12 rounded-full object-cover ring-1 ring-border" />
+          ) : (
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-gild/15 font-display text-xl text-gild ring-1 ring-gild/30">
+              {(store.name ?? "S").trim().charAt(0).toUpperCase()}
+            </span>
+          )}
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Your store</p>
+            <h1 className="mt-0.5 font-display text-3xl leading-tight">{store.name}</h1>
+          </div>
         </div>
         <Link
           to="/s/$storeSlug"
@@ -290,7 +300,7 @@ function StoreOverview({ store }: { store: any }) {
         </Link>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs — every card is a door into its surface */}
       <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <KPI
           label="Revenue"
@@ -298,27 +308,31 @@ function StoreOverview({ store }: { store: any }) {
           hint={`${paidCount} paid`}
           icon={<TrendingUp className="h-4 w-4" />}
           accent="var(--sage)"
+          to="/dashboard/orders"
         />
         <KPI
           label="Orders"
           value={String(orderCount)}
-          hint={`${conversion}% paid`}
+          hint={orderCount ? `${conversion}% paid` : "No orders yet"}
           icon={<ShoppingCart className="h-4 w-4" />}
           accent="var(--gold)"
+          to="/dashboard/orders"
         />
         <KPI
           label="Products"
           value={String(stats.data?.productCount ?? 0)}
           hint="Live in store"
           icon={<Package className="h-4 w-4" />}
-          accent="var(--terracotta)"
+          accent="var(--gild)"
+          to="/dashboard/products"
         />
         <KPI
           label="Unread chats"
           value={String(stats.data?.unreadChats ?? 0)}
-          hint={`${stats.data?.openDeliveries ?? 0} deliveries`}
+          hint={(stats.data?.unreadChats ?? 0) > 0 ? "Buyers waiting" : "All caught up"}
           icon={<MessageCircle className="h-4 w-4" />}
-          accent="var(--primary)"
+          accent="var(--terracotta)"
+          to="/dashboard/chats"
         />
       </div>
 
@@ -357,7 +371,8 @@ function StoreOverview({ store }: { store: any }) {
               {formatGHS(revenue, { currency })}
             </span>
           </div>
-          <div className="mt-4 h-64 w-full">
+          {/* New-store honesty: keep the (flat) chart, but say why it's flat. */}
+          <div className="relative mt-4 h-48 w-full md:h-64">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={revenueSeries} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
                 <defs>
@@ -389,6 +404,16 @@ function StoreOverview({ store }: { store: any }) {
                 />
               </AreaChart>
             </ResponsiveContainer>
+            {orderCount === 0 && (
+              <div className="absolute inset-0 grid place-items-center rounded-xl bg-card/60 backdrop-blur-[1px]">
+                <div className="max-w-[230px] text-center">
+                  <StoreIcon className="mx-auto h-5 w-5 text-muted-foreground" />
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    No sales yet — share your storefront link to land the first order.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -399,7 +424,7 @@ function StoreOverview({ store }: { store: any }) {
           {statusSeries.length === 0 ? (
             <EmptyChart hint="No orders yet — share your store link." />
           ) : (
-            <div className="mt-4 h-64 w-full">
+            <div className="mt-4 h-52 w-full md:h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -455,7 +480,7 @@ function StoreOverview({ store }: { store: any }) {
           {(topProducts.data ?? []).length === 0 ? (
             <EmptyChart hint="Add products to see this chart come alive." />
           ) : (
-            <div className="mt-4 h-64 w-full">
+            <div className="mt-4 h-48 w-full md:h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={topProducts.data ?? []}
@@ -501,10 +526,38 @@ function StoreOverview({ store }: { store: any }) {
           <p className="font-display text-lg">Quick actions</p>
           <div className="mt-3 grid gap-2">
             <QuickAction to="/dashboard/products" title="Add a product" body="Snap a photo, AI writes the rest." icon={<Package className="h-4 w-4" />} />
-            <QuickAction to="/chat" title="Reply to buyers" body={`${stats.data?.unreadChats ?? 0} unread thread${(stats.data?.unreadChats ?? 0) === 1 ? "" : "s"}`} icon={<MessageCircle className="h-4 w-4" />} />
+            <QuickAction to="/dashboard/chats" title="Reply to buyers" body={`${stats.data?.unreadChats ?? 0} unread thread${(stats.data?.unreadChats ?? 0) === 1 ? "" : "s"}`} icon={<MessageCircle className="h-4 w-4" />} />
             <QuickAction to="/dashboard/deliveries" title="Request a rider" body="Dispatch a paid order." icon={<Truck className="h-4 w-4" />} />
             <QuickAction to="/dashboard/affiliate" title="Grow with affiliates" body="Recruit resellers." icon={<Users className="h-4 w-4" />} />
           </div>
+        </div>
+      </div>
+
+      {/* AI Auto-Ads — reserved Premium feature. A teaser, not a flow: the
+          ads generator itself is still being built, so the CTA only collects
+          interest (WhatsApp reservation lands with billing). */}
+      <div className="mt-4 overflow-hidden rounded-2xl border border-[var(--gold)]/40 bg-gradient-to-br from-[var(--gold)]/10 via-card to-card p-5">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--gold)]/15 text-[var(--gold)]">
+            <Wand2 className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-display text-lg">AI Auto-Ads</p>
+              <span className="rounded-full border border-[var(--gold)]/50 bg-[var(--gold)]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-foreground">
+                Premium · Coming soon
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              AI turns your product photos into scroll-stopping ads — captions, hashtags, done for you. We're polishing it for Premium sellers.
+            </p>
+          </div>
+          <button
+            onClick={() => toast.success("You're on the early list — AI Auto-Ads lands with Premium 🔒")}
+            className="shrink-0 rounded-full border border-[var(--gold)]/60 px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-[var(--gold)]/15"
+          >
+            Reserve early access
+          </button>
         </div>
       </div>
     </div>
@@ -515,33 +568,43 @@ function StoreOverview({ store }: { store: any }) {
 /*                                Small parts                                 */
 /* -------------------------------------------------------------------------- */
 
+/* KPI card — a door into its surface: label/value lead, chip sits quiet in
+   the corner, whole card taps through. Chip is a tint of the accent (never
+   white-on-lemon, which fails contrast). */
 function KPI({
   label,
   value,
   hint,
   icon,
   accent,
+  to,
 }: {
   label: string;
   value: string;
   hint?: string;
   icon: React.ReactNode;
   accent: string;
+  to: string;
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-card p-4">
-      <div className="flex items-center justify-between">
+    <Link
+      to={to}
+      className="block rounded-2xl border border-border bg-card p-4 transition-colors hover:border-[var(--primary)]/40 hover:bg-accent/40 active:bg-accent"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+          <p className="mt-2 font-display text-2xl leading-tight">{value}</p>
+          {hint && <p className="mt-0.5 truncate text-xs text-muted-foreground">{hint}</p>}
+        </div>
         <span
-          className="grid h-8 w-8 place-items-center rounded-full text-white"
-          style={{ background: `color-mix(in oklab, ${accent} 85%, transparent)` }}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full"
+          style={{ background: `color-mix(in oklab, ${accent} 16%, transparent)`, color: accent }}
         >
           {icon}
         </span>
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
       </div>
-      <p className="mt-3 font-display text-2xl leading-tight">{value}</p>
-      {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
-    </div>
+    </Link>
   );
 }
 

@@ -8,6 +8,7 @@ import { BadgeCheck, Check, ChevronRight, MapPin, MessageCircle, ShieldCheck, St
 import { toast } from "sonner";
 import { ProductCardTile, protoRating } from "./index";
 import { StoreAssistant, StoreAvatar, StoreLocationCard, StoreTopBar } from "@/components/StoreChrome";
+import { StoryTray } from "@/components/Stories";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
 
@@ -291,6 +292,13 @@ function StorefrontPage() {
           </div>
         </div>
       </section>
+
+      {/* Stories — the seller's 24h status, WhatsApp-style. Renders nothing
+          until the store has a live story (and quietly nothing before the
+          stories migration runs). */}
+      <div className="mt-4">
+        <StoryTray storeId={s.id} storeSlug={s.slug} storeName={s.name} logoUrl={s.logo_url} accent={accent} />
+      </div>
 
       {/* Tabs */}
       <div className="mx-auto mt-6 max-w-6xl px-4 md:px-8">

@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, redirect, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { LayoutDashboard, Package, ShoppingCart, Palette, Settings, Home, MessageCircle } from "lucide-react";
+import { LayoutDashboard, Package, ShoppingCart, Palette, Settings, Home, MessageCircle, CirclePlay } from "lucide-react";
 import { FloatingAIAssistant } from "@/components/FloatingAIAssistant";
 import { supabase } from "@/integrations/supabase/client";
 import { autoPilotReply } from "@/lib/ai.functions";
@@ -17,6 +17,7 @@ const items: NavItem[] = [
   { to: "/dashboard/products", label: "Products", icon: Package },
   { to: "/dashboard/orders", label: "Orders", icon: ShoppingCart },
   { to: "/dashboard/chats", label: "Chats", icon: MessageCircle },
+  { to: "/dashboard/stories", label: "Stories", icon: CirclePlay },
   { to: "/dashboard/storefront", label: "Storefront", icon: Palette },
   { to: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
@@ -150,8 +151,11 @@ function DashboardLayout() {
           </div>
           <Outlet />
 
-          <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-background/95 backdrop-blur md:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-            {[items[0], items[1], items[2], items[3], items[4]].map(({ to, label, icon: Icon, exact }) => {
+          {/* Six tiles: everything except Settings — settings stay on the
+              desktop rail (and /account) while Stories stays thumb-reachable,
+              since sellers post statuses from their phones. */}
+          <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-border bg-background/95 backdrop-blur md:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+            {items.filter(({ to }) => to !== "/dashboard/settings").map(({ to, label, icon: Icon, exact }) => {
               const active = exact ? pathname === to : pathname.startsWith(to);
               return (
                 <Link
