@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, ArrowDown, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone, ChevronRight, ClipboardList, Loader2, MoreVertical, RotateCcw, Package, ExternalLink } from "lucide-react";
+import { ArrowLeft, ArrowDown, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone, ClipboardList, Loader2, MoreVertical, RotateCcw, Package, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
 import { autoPilotReply, autoPilotReplyRemote, summarizeConversation } from "@/lib/ai.functions";
@@ -448,17 +448,17 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
           <p className="line-clamp-1 font-semibold leading-tight">
             {isSeller ? buyerProfile.data?.full_name || "Buyer" : convo.data?.store?.name ?? "…"}
           </p>
-          <p className={`flex items-center gap-1.5 text-[11px] leading-tight ${aiTyping ? "font-medium text-gold" : "text-muted-foreground"}`}>
+          <p className={`flex items-center gap-1.5 text-[11px] leading-tight ${aiTyping ? "font-medium text-gild" : "text-muted-foreground"}`}>
             {/* Presence dot: gold pulse while the AI composes, steady gold for
                 an AI-assisted store, green for a human-backed store. */}
             <span
               aria-hidden
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${
                 aiTyping
-                  ? "animate-pulse bg-gold"
+                  ? "animate-pulse bg-gild"
                   : !isSeller && store?.plan === "pro" && store?.auto_pilot
-                    ? "bg-gold"
-                    : "bg-emerald-500"
+                    ? "bg-gild"
+                    : "bg-gold"
               }`}
             />
             {aiTyping
@@ -500,7 +500,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
             onClick={toggleAutoPilot}
             className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
               store?.auto_pilot
-                ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-500"
+                ? "border-gold/50 bg-gold/10 text-gold"
                 : "border-border text-muted-foreground hover:text-foreground"
             }`}
             title="When ON, the AI replies to buyers, takes orders and alerts you — even while you're away."
@@ -538,7 +538,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
                     }}
                     className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm hover:bg-accent"
                   >
-                    <ClipboardList className="h-4 w-4 shrink-0 text-[var(--gold)]" /> AI recap of this chat
+                    <ClipboardList className="h-4 w-4 shrink-0 text-[var(--gild)]" /> AI recap of this chat
                   </button>
                 )}
                 {isSeller && (
@@ -578,26 +578,30 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
         </div>
       </header>
 
-      {/* Product context chip — tap anywhere to open the listing */}
+      {/* Product context — a floating card on the thread tint (no full-bleed
+          strip). Sits pinned above the messages; tap to open the listing. */}
       {product && (
-        <Link
-          to="/s/$storeSlug/p/$productSlug"
-          params={{ storeSlug: convo.data.store.slug, productSlug: product.slug }}
-          data-full-bleed
-          className="z-10 flex items-center gap-2.5 border-b border-border bg-card px-3 py-1.5 transition-colors hover:bg-accent/60"
-        >
-          <div className="h-8 w-8 shrink-0 overflow-hidden rounded-lg bg-muted">
-            {productImage && <img src={productImage} alt="" className="h-full w-full object-cover" />}
-          </div>
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="line-clamp-1 text-xs font-medium">{product.title}</p>
-            <p className="text-[11px] font-semibold text-gold">{formatGHS(product.base_price, { currency: product.currency })}</p>
-          </div>
-          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-        </Link>
+        <div className="z-10 bg-[color-mix(in_oklab,var(--background)_92%,var(--primary)_8%)] px-2.5 pb-1 pt-2">
+          <Link
+            to="/s/$storeSlug/p/$productSlug"
+            params={{ storeSlug: convo.data.store.slug, productSlug: product.slug }}
+            className="flex items-center gap-2.5 rounded-2xl border border-border/60 bg-card/95 py-1.5 pl-1.5 pr-3 shadow-sm transition-colors hover:bg-accent/60"
+          >
+            <div className="h-9 w-9 shrink-0 overflow-hidden rounded-xl bg-muted">
+              {productImage && <img src={productImage} alt="" className="h-full w-full object-cover" />}
+            </div>
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="line-clamp-1 text-[12px] font-semibold">{product.title}</p>
+              <p className="text-[11px] font-bold text-gold">{formatGHS(product.base_price, { currency: product.currency })}</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-[var(--gold)]/12 px-2.5 py-1 text-[10px] font-semibold text-gold">
+              View
+            </span>
+          </Link>
+        </div>
       )}
 
-      {/* Messages */}
+      {/* Messages — same tint as the product card, so the card floats */}
       <div className="relative min-h-0 flex-1">
         <div
           ref={listRef}
@@ -605,7 +609,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
             const el = e.currentTarget;
             setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
           }}
-          className="h-full overflow-y-auto bg-[color-mix(in_oklab,var(--background)_92%,var(--primary)_8%)] px-3 py-4"
+          className="h-full overflow-y-auto bg-[color-mix(in_oklab,var(--background)_92%,var(--primary)_8%)] px-3 pb-2 pt-2"
         >
         <div className="mx-auto flex max-w-2xl flex-col gap-1.5">
           {msgs.isLoading && <p className="py-8 text-center text-sm text-muted-foreground">Loading messages…</p>}
@@ -631,7 +635,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
             const mine = m.sender_id === user?.id;
             if (m.kind === "system_order" || m.kind === "system_delivery") {
               return (
-                <div key={m.id} className="mx-auto my-1 max-w-sm rounded-2xl border border-[var(--gold)]/40 bg-[var(--gold)]/10 px-4 py-2.5 text-center">
+                <div key={m.id} className="mx-auto my-1 max-w-sm rounded-2xl border border-[var(--gild)]/40 bg-[var(--gild)]/10 px-4 py-2.5 text-center">
                   <p className="text-xs font-medium">{m.body}</p>
                   <p className="mt-0.5 text-[10px] text-muted-foreground">{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
                   {(m as any).metadata?.order_id && (
@@ -756,7 +760,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
       {/* SELLER: AI recap panel — opened from the header ⋮ menu. The gold
           top rule marks every AI-authored surface in the thread. */}
       {isSeller && showRecap && (
-        <div className="border-t-2 border-[var(--gold)]/50 bg-card px-3 py-3 backdrop-blur">
+        <div className="border-t-2 border-[var(--gild)]/50 bg-card px-3 py-3 backdrop-blur">
           <div className="flex items-center justify-between">
             <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               <ClipboardList className="h-3.5 w-3.5 text-[var(--gold)]" /> AI recap
