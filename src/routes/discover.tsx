@@ -126,14 +126,14 @@ function Discover() {
           <h1 className="font-display text-3xl">Discover</h1>
           <button
             onClick={() => setShowFilters((v) => !v)}
-            className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${filtersActive ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-accent"}`}
+            className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${filtersActive ? "border-[var(--gold)] bg-[var(--gold)]/10 text-gold" : "border-border text-muted-foreground hover:bg-accent"}`}
           >
-            <SlidersHorizontal className="h-3.5 w-3.5" /> Filters
+            <SlidersHorizontal className="h-3.5 w-3.5" /> Filters{filtersActive && <span className="h-1.5 w-1.5 rounded-full bg-gold" aria-hidden />}
           </button>
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">Find your next favorite Ghanaian brand.</p>
+        <p className="mt-1 hidden text-sm text-muted-foreground sm:block">Find your next favorite Ghanaian brand.</p>
 
-        <div className="mt-4 flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2.5">
+        <div className="mt-3 flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2.5 focus-within:border-gold/60">
           <Search className="h-4 w-4 text-muted-foreground" />
           <input
             value={q}
@@ -168,7 +168,7 @@ function Discover() {
               />
               <button
                 onClick={applyPrice}
-                className="shrink-0 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+                className="shrink-0 rounded-xl bg-[var(--gold)] px-4 py-2 text-sm font-semibold text-[var(--gold-foreground)] hover:brightness-110"
               >
                 Apply
               </button>
@@ -180,8 +180,14 @@ function Discover() {
             )}
           </div>
         )}
+      </div>
 
-        <div className="no-scrollbar mt-4 flex gap-2 overflow-x-auto">
+      {/* Sticky discovery bar — chips + sort ride under the masthead while
+          the grid scrolls, so ordering/filtering is always one tap away.
+          Direct child of <main> (NOT the header block): sticky only travels
+          within its containing block, and this one must span the whole page. */}
+      <div className="sticky top-[4.3rem] z-30 bg-background/95 px-4 py-2.5 backdrop-blur md:top-[6.7rem] md:px-8">
+        <div className="no-scrollbar flex gap-2 overflow-x-auto">
           <FilterPill to="/discover" search={{ q: deferredQ || undefined, ...(sort !== "new" ? { sort } : {}) }} active={!activeCat}>All</FilterPill>
           {cats.data?.filter((c) => !c.parent_id).map((c) => (
             <FilterPill key={c.id} to="/discover" search={{ category: c.slug, q: deferredQ || undefined, ...(sort !== "new" ? { sort } : {}) }} active={activeCat === c.slug}>
@@ -201,7 +207,7 @@ function Discover() {
         )}
 
         {/* Sort — Jiji/Temu-style ordering, native select so mobile opens the picker */}
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-2 flex items-center gap-2">
           <label className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground">
             Sort
             <select
@@ -302,7 +308,7 @@ function FilterPill({ to, search, active, children }: any) {
     <Link
       to={to}
       search={search}
-      className="whitespace-nowrap rounded-full border border-border px-4 py-1.5 text-sm data-[active=true]:border-primary data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
+      className="whitespace-nowrap rounded-full border border-border px-4 py-1.5 text-sm transition-colors data-[active=true]:border-[var(--gold)] data-[active=true]:bg-[var(--gold)] data-[active=true]:text-[var(--gold-foreground)]"
       data-active={active}
     >
       {children}
