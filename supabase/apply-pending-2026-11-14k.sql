@@ -32,9 +32,10 @@ CREATE TABLE IF NOT EXISTS public.stories (
   expires_at timestamptz NOT NULL DEFAULT (now() + interval '24 hours')
 );
 
-CREATE INDEX IF NOT EXISTS stories_store_active_idx
-  ON public.stories (store_id, created_at)
-  WHERE expires_at > now();
+-- Plain index — a partial WHERE expires_at > now() predicate is illegal
+-- here: now() is STABLE and index predicates demand IMMUTABLE functions.
+CREATE INDEX IF NOT EXISTS stories_store_idx
+  ON public.stories (store_id, created_at);
 
 CREATE TABLE IF NOT EXISTS public.story_views (
   story_id uuid NOT NULL REFERENCES public.stories(id) ON DELETE CASCADE,
