@@ -5,14 +5,15 @@
 // chip home, Messages title, bell, account. On mobile one pane shows at a
 // time, full-screen; on desktop the list sits beside the thread. The
 // dashboard variant keeps the dashboard's own chrome (sidebar + bars).
-import { Outlet, useRouterState, Link } from "@tanstack/react-router";
-import { MessageCircle, User } from "lucide-react";
+import { Outlet, useRouterState, Link, useNavigate } from "@tanstack/react-router";
+import { ArrowLeft, MessageCircle, User } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { AppShell } from "@/components/AppShell";
 import { ChatList, type ChatScope } from "@/components/ChatList";
 
 export function ChatShell({ scope, surface = "marketplace" }: { scope: ChatScope; surface?: "marketplace" | "dashboard" }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const navigate = useNavigate();
   const inThread = /^\/(dashboard\/chats|sell\/chat|chat)\/.+/.test(pathname);
   const activeId = inThread ? pathname.split("/").pop() : undefined;
 
@@ -28,14 +29,29 @@ export function ChatShell({ scope, surface = "marketplace" }: { scope: ChatScope
       {/* ── Conversation pane (hidden on mobile while a thread is open) ── */}
       <aside className={`min-h-0 flex-col border-border/60 md:border-r ${inThread ? "hidden md:flex" : "flex flex-1"}`}>
         {/* App bar — chat has no masthead above it, so it carries its own
-            chrome: brand chip (home / dashboard), title, bell, account. */}
+            chrome. Mobile gets a history-aware back arrow (the inbox is a
+            full-screen page: arrived from a product page, back returns
+            there); desktop keeps the brand chip since the list is just a
+            side pane. */}
         {surface === "marketplace" && (
           <div className="flex items-center gap-2 border-b border-border/60 bg-background px-3 py-2.5">
+            <button
+              onClick={() => {
+                const idx = (window.history.state as any)?.idx ?? 0;
+                if (idx > 0) window.history.back();
+                else navigate({ to: scope === "selling" ? "/dashboard" : "/" });
+              }}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-accent md:hidden"
+              aria-label="Back"
+              title="Back"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
             <Link
               to={scope === "selling" ? "/dashboard" : "/"}
               aria-label={scope === "selling" ? "Back to dashboard" : "Home"}
               title={scope === "selling" ? "Back to dashboard" : "Home"}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--gold)]/12 font-display text-sm font-bold text-[var(--gold)] ring-1 ring-gold/30"
+              className="hidden h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--gold)]/12 font-display text-sm font-bold text-[var(--gold)] ring-1 ring-gold/30 md:grid"
             >
               B
             </Link>
