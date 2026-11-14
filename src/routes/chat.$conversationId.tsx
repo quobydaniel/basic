@@ -751,9 +751,10 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
         )}
       </div>
 
-      {/* SELLER: AI recap panel — opened from the header ⋮ menu. */}
+      {/* SELLER: AI recap panel — opened from the header ⋮ menu. The gold
+          top rule marks every AI-authored surface in the thread. */}
       {isSeller && showRecap && (
-        <div className="border-t border-border bg-card px-3 py-3 backdrop-blur">
+        <div className="border-t-2 border-[var(--gold)]/50 bg-card px-3 py-3 backdrop-blur">
           <div className="flex items-center justify-between">
             <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               <ClipboardList className="h-3.5 w-3.5 text-[var(--gold)]" /> AI recap
@@ -805,7 +806,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
 
       {/* Seller: create order panel */}
       {showOrderPanel && (
-        <div className="border-t border-border bg-card px-3 py-3">
+        <div className="border-t-2 border-[var(--gold)]/50 bg-card px-3 py-3">
           <div className="mx-auto max-w-2xl">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Create order</p>
             <div className="mt-2 grid grid-cols-2 gap-2">
