@@ -37,7 +37,7 @@ AS $$
   );
 $$;
 
-ALTER TABLE public.reviews DROP POLICY IF EXISTS "reviews_own_manage";
+DROP POLICY IF EXISTS "reviews_own_manage" ON public.reviews;
 
 CREATE POLICY "reviews_buyers_insert" ON public.reviews
   FOR INSERT TO authenticated
