@@ -4,6 +4,8 @@ import { useRouterState } from "@tanstack/react-router";
 import { Sparkles, X, Send, Loader2, MessageSquarePlus } from "lucide-react";
 import { toast } from "sonner";
 import { assistantChat } from "@/lib/ai.functions";
+import { useSession } from "@/lib/session";
+import { supabase } from "@/integrations/supabase/client";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -13,6 +15,63 @@ const SUGGESTIONS = [
   "What should I price a handmade tote?",
   "How do I request a rider for an order?",
 ];
+
+/* Seller-side personalized suggestions — grounded in the store's live data:
+   pending orders and low/ out-of-stock stock turn into concrete prompts. */
+function useSellerSuggestions(open: boolean) {
+  const { user } = useSession();
+  const [extra, setExtra] = useState<string[]>([]);
+  useEffect(() => {
+    setExtra([]);
+    if (!open || !user) return;
+    let dead = false;
+    (async () => {
+      try {
+        const { data: stores } = await supabase
+          .from("stores")
+          .select("id")
+          .eq("owner_id", user.id)
+          .limit(5);
+        const storeIds = (stores ?? []).map((s: { id: string }) => s.id);
+        if (!storeIds.length || dead) return;
+        const [{ count: pendingOrders }, { data: stockRows }] = await Promise.all([
+          supabase
+            .from("orders")
+            .select("id", { count: "exact", head: true })
+            .in("store_id", storeIds)
+            .eq("status", "placed"),
+          supabase
+            .from("products")
+            .select("title, product_variants(inventory_qty)")
+            .in("store_id", storeIds)
+            .eq("status", "active")
+            .limit(60),
+        ]);
+        if (dead) return;
+        const soldOut = (stockRows ?? [])
+          .map((p: any) => ({
+            title: p.title as string,
+            qty: (p.product_variants ?? []).reduce(
+              (s: number, v: any) => s + Number(v.inventory_qty ?? 0),
+              0,
+            ),
+          }))
+          .filter((p) => p.qty <= 3);
+        const out: string[] = [];
+        if (pendingOrders) out.push(`Help me handle my ${pendingOrders} pending order${pendingOrders === 1 ? "" : "s"}`);
+        if (soldOut[0]) out.push(`Write a restock note for ${soldOut[0].title}`);
+        else if (stockRows?.[0]) out.push(`Write a promo post for ${stockRows[0].title}`);
+        setExtra(out.slice(0, 2));
+      } catch {
+        if (!dead) setExtra([]);
+      }
+    })();
+    return () => {
+      dead = true;
+    };
+  }, [open, user?.id]);
+  return extra;
+}
 
 export function FloatingAIAssistant() {
   const [open, setOpen] = useState(false);
@@ -25,6 +84,16 @@ export function FloatingAIAssistant() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   // Which dashboard screen the seller is on — "Orders", "Products", …
   const screen = pathname.split("/").filter(Boolean).slice(1).join(" / ") || "Dashboard";
+  const sellerChips = useSellerSuggestions(open);
+  const suggestions = sellerChips.length > 0 ? [...sellerChips, ...SUGGESTIONS.slice(0, 4 - sellerChips.length)] : SUGGESTIONS;
+  // Ping ring greets first-timers only.
+  const [firstTimeUsed] = useState(() => {
+    try {
+      return localStorage.getItem("basic:assistant-used") === "1";
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -37,6 +106,7 @@ export function FloatingAIAssistant() {
   async function send(text: string) {
     const clean = text.trim();
     if (!clean || busy) return;
+    try { localStorage.setItem("basic:assistant-used", "1"); } catch {}
     const next: Msg[] = [...messages, { role: "user", content: clean }];
     setMessages(next);
     setInput("");
@@ -68,7 +138,7 @@ export function FloatingAIAssistant() {
         style={{ marginBottom: "env(safe-area-inset-bottom)" }}
       >
         {open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}
-        {!open && (
+        {!open && !firstTimeUsed && (
           <span className="pointer-events-none absolute inset-0 -z-10 animate-ping rounded-full bg-primary/40" />
         )}
       </button>
@@ -109,7 +179,12 @@ export function FloatingAIAssistant() {
                   Hi 👋 I can help with product ideas, pricing, captions, or figuring out what to do next in BASIC.
                 </p>
                 <div className="grid gap-2">
-                  {SUGGESTIONS.map((s) => (
+                  {sellerChips.length > 0 && (
+                    <p className="flex items-center gap-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-gold">
+                      <Sparkles className="h-3 w-3" /> For your store
+                    </p>
+                  )}
+                  {suggestions.map((s) => (
                     <button
                       key={s}
                       onClick={() => send(s)}

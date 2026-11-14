@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Home, Search, MessageCircle, Package, User, Heart, Bike, ShieldCheck, ArrowUpRight, Store, ChevronRight } from "lucide-react";
+import { Home, Search, MessageCircle, Package, User, Heart, Bike, ShieldCheck, ArrowUpRight, Store, ChevronRight, Sparkles } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { FloatingBuyerAssistant } from "@/components/FloatingBuyerAssistant";
 import { LocationPicker } from "@/components/LocationPicker";
@@ -16,7 +16,7 @@ import type { ReactNode } from "react";
 // after-dark luxury: icons hush to ivory, the active tab wears a gold pin.
 const tabs = [
   { to: "/", label: "Home", icon: Home },
-  { to: "/discover", label: "Search", icon: Search },
+  { to: "/discover", label: "Discover", icon: Search },
   { to: "/chat", label: "Chats", icon: MessageCircle },
   { to: "/orders", label: "Orders", icon: Package },
   { to: "/account", label: "Account", icon: User },
@@ -84,16 +84,15 @@ function TopBar() {
           </Link>
 
           <div className="flex flex-1 items-center justify-end gap-1">
+            <AssistantTopButton />
             <Link
               to="/discover"
               className="grid h-9 w-9 place-items-center rounded-full text-foreground/80 hover:bg-accent md:hidden"
-              aria-label="Search"
+              aria-label="Discover"
             >
               <Search className="h-[18px] w-[18px]" strokeWidth={1.6} />
             </Link>
-            {/* ── PARKED — nav redesign in progress. Uncomment to re-place. ──
             <AccountLink />
-            ── end parked ── */}
           </div>
         </div>
 
@@ -130,8 +129,7 @@ function DesktopLink({ to, label }: { to: string; label: string }) {
   );
 }
 
-/* AccountLink — kept intact for the nav redesign; currently parked out of
-   the masthead. Drop it into whichever slot the new layout gives auth. */
+/* AccountLink — masthead entry: account (or sign-in) on desktop. */
 function AccountLink() {
   const { user } = useSession();
   return (
@@ -144,7 +142,23 @@ function AccountLink() {
     </Link>
   );
 }
-void AccountLink;
+
+/* AssistantTopButton — always-visible AI entry in the masthead. The floating
+   orb lives bottom-right; this puts the assistant one tap from every page
+   top (it hides on chat/account where the floating assistant is disabled). */
+function AssistantTopButton() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  if (pathname.startsWith("/chat") || pathname.startsWith("/account")) return null;
+  return (
+    <button
+      onClick={() => window.dispatchEvent(new CustomEvent("basic:assistant:open"))}
+      aria-label="Open BASIC assistant"
+      className="relative grid h-9 w-9 place-items-center rounded-full text-foreground/80 transition-colors hover:bg-accent hover:text-gold"
+    >
+      <Sparkles className="h-[18px] w-[18px]" strokeWidth={1.6} />
+    </button>
+  );
+}
 
 function BottomTabBar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -193,8 +207,8 @@ function SiteFooter() {
             properly, delivered with care.
           </p>
         </div>
-        <FooterCol title="House" links={[["/discover", "Discover"], ["/stores", "Stores"], ["/chat", "Conversations"], ["/orders", "Orders"], ["/favorites", "Favorites"]]} />
-        <FooterCol title="Company" links={[["/about", "About BASIC"], ["/contact", "Contact us"]]} />
+        <FooterCol title="House" links={[["/discover", "Discover"], ["/stores", "Stores"], ["/chat", "Chats"], ["/orders", "Orders"], ["/favorites", "Favorites"]]} />
+        <FooterCol title="Company" links={[["/pricing", "BASIC Premium"], ["/chat", "Message us"]]} />
         <FooterCol
           title="Professionals"
           links={[["/auth?mode=sell", "Consign with us", Store], ["/rider", "Deliver with BASIC", Bike], ["/quoby", "Admin console", ShieldCheck]]}
@@ -355,7 +369,7 @@ function MegaCollections() {
         className="gold-rule pb-1.5 text-[11px] font-semibold uppercase tracking-[0.3em] text-muted-foreground transition-colors group-hover:text-foreground data-[active=true]:text-gold"
         data-active={isActive}
       >
-        Categories
+        Discover
       </Link>
       {/* Panel — hover opens it; any click inside closes it after navigating */}
       <div className={`absolute left-1/2 top-full z-50 -translate-x-1/2 pt-3 transition-all duration-300 ${open ? "visible opacity-100" : "invisible opacity-0"}`}>

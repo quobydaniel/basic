@@ -5,10 +5,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type React from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useLocation } from "@tanstack/react-router";
-import { X, Send, Loader2, Sparkles, Navigation, PackageSearch, HandCoins, Store } from "lucide-react";
+import { X, Send, Loader2, Sparkles, Navigation, PackageSearch, HandCoins, Store, Heart, Package } from "lucide-react";
 import { toast } from "sonner";
 import { buyerAssistant } from "@/lib/ai.functions";
 import { formatGHS } from "@/lib/format";
+import { useSession } from "@/lib/session";
+import { supabase } from "@/integrations/supabase/client";
 
 type AssistantStore = {
   id: string; slug: string; name: string; tagline: string | null;
@@ -96,6 +98,97 @@ const CONTEXT_META: Record<AssistantContext, { teaser: string; sub: string; chip
   },
 };
 
+/* Personalized suggestions — built from the buyer's real favorites and order
+   history, shuffled on every open so the assistant feels alive instead of
+   reciting a fixed script. Empty pool (new buyer) → static context chips. */
+function buildPersonalChipPool(
+  favs: { title: string; store: string | null }[],
+  orders: { order_number: string; status: string; items: string[] }[],
+): string[] {
+  const pool: string[] = [];
+  const [a, b] = favs;
+  if (a && b) pool.push(`Compare ${a.title} with ${b.title}`);
+  if (a) {
+    pool.push(`Is ${a.title} worth it?`);
+    if (a.store) pool.push(`Stores like ${a.store}`);
+  }
+  const active = orders.find((o) => !["delivered", "cancelled", "refunded"].includes(o.status));
+  if (active) pool.push(`Where is my order #${active.order_number}?`);
+  const delivered = orders.find((o) => o.status === "delivered" && o.items[0]);
+  if (delivered) pool.push(`Reorder ${delivered.items[0]}`);
+  return pool;
+}
+
+function useSuggestedChips(context: AssistantContext, open: boolean) {
+  const { user } = useSession();
+  const [personal, setPersonal] = useState<string[]>([]);
+  useEffect(() => {
+    setPersonal([]);
+    // Product pages keep their listing-grounded chips — no history mix-in.
+    if (!open || !user || context === "product") return;
+    let dead = false;
+    (async () => {
+      try {
+        const [{ data: favRows }, { data: orderRows }] = await Promise.all([
+          supabase
+            .from("favorites")
+            .select("product_id")
+            .eq("user_id", user.id)
+            .order("created_at", { ascending: false })
+            .limit(4),
+          supabase
+            .from("orders")
+            .select("order_number, status, order_items(product_title, quantity)")
+            .eq("buyer_id", user.id)
+            .order("created_at", { ascending: false })
+            .limit(4),
+        ]);
+        const ids = (favRows ?? []).map((f: { product_id: string }) => f.product_id);
+        let favs: { title: string; store: string | null }[] = [];
+        if (ids.length) {
+          const { data: prods } = await supabase
+            .from("products")
+            .select("id, title, store:stores(name)")
+            .in("id", ids);
+          const byId = new Map((prods ?? []).map((p: { id: string }) => [p.id, p]));
+          favs = ids
+            .map((id: string) => byId.get(id))
+            .filter(Boolean)
+            .map((p: any) => ({ title: p.title, store: p.store?.name ?? null }));
+        }
+        const orders = (orderRows ?? []).map((o: any) => ({
+          order_number: o.order_number as string,
+          status: o.status as string,
+          items: (o.order_items ?? []).map((i: any) => i.product_title).filter(Boolean) as string[],
+        }));
+        if (dead) return;
+        const pool = buildPersonalChipPool(favs, orders);
+        // Fisher–Yates so each open shuffles the picks.
+        for (let i = pool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+        setPersonal(pool.slice(0, 2));
+      } catch {
+        if (!dead) setPersonal([]);
+      }
+    })();
+    return () => {
+      dead = true;
+    };
+  }, [open, context, user?.id]);
+  return personal;
+}
+
+function chipIcon(s: string) {
+  if (s.startsWith("Take me")) return Navigation;
+  if (/draft an offer|offer/i.test(s)) return HandCoins;
+  if (/store|seller|Stores like/i.test(s)) return Store;
+  if (/Compare|worth it|favorite/i.test(s)) return Heart;
+  if (/order|Reorder/i.test(s)) return Package;
+  return PackageSearch;
+}
+
 export function FloatingBuyerAssistant({ productId, context = "home" }: { productId?: string; context?: AssistantContext }) {
   const loc = useLocation();
   const [open, setOpen] = useState(false);
@@ -108,6 +201,28 @@ export function FloatingBuyerAssistant({ productId, context = "home" }: { produc
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const meta = CONTEXT_META[context] ?? CONTEXT_META.home;
+  const personalChips = useSuggestedChips(context, open);
+  // 2 personalized picks on top, first static chip fills the row to three.
+  const suggestedChips = personalChips.length > 0 ? [...personalChips, meta.chips[0]] : meta.chips;
+  // The ping ring welcomes first-timers only — once the assistant has been
+  // used it stops shouting for attention (visibility without nagging).
+  const [everUsed] = useState(() => {
+    try {
+      return localStorage.getItem("basic:assistant-used") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  // TopBar sparkle (and any other entry point) opens the panel via event.
+  useEffect(() => {
+    const openAssistant = () => {
+      setOpen(true);
+      setShowTeaser(false);
+    };
+    window.addEventListener("basic:assistant:open", openAssistant);
+    return () => window.removeEventListener("basic:assistant:open", openAssistant);
+  }, []);
 
   // Teaser bubble: appears after a short settle, resets per page context
   useEffect(() => {
@@ -188,7 +303,7 @@ export function FloatingBuyerAssistant({ productId, context = "home" }: { produc
         ) : (
           <Sparkles className="h-6 w-6 transition-transform group-hover:rotate-12" />
         )}
-        {!open && (
+        {!open && !everUsed && (
           <span className="pointer-events-none absolute inset-0 -z-10 animate-ping rounded-full bg-primary/40" />
         )}
       </button>
@@ -229,12 +344,13 @@ export function FloatingBuyerAssistant({ productId, context = "home" }: { produc
                       : "Hi 👋 I can find products, suggest stores, answer questions, and take you anywhere in the app."}
                 </p>
                 <div className="grid gap-2">
-                  {meta.chips.map((s) => {
-                    const Icon =
-                      s.startsWith("Take me") ? Navigation
-                      : /draft an offer|offer/i.test(s) ? HandCoins
-                      : /store|seller/i.test(s) ? Store
-                      : PackageSearch;
+                  {personalChips.length > 0 && (
+                    <p className="flex items-center gap-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-gold">
+                      <Sparkles className="h-3 w-3" /> For you
+                    </p>
+                  )}
+                  {suggestedChips.map((s) => {
+                    const Icon = chipIcon(s);
                     return (
                       <button
                         key={s}

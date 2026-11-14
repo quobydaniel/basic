@@ -160,7 +160,7 @@ export function ChatList({
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Search conversations…"
+                placeholder="Search chats…"
                 className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
             </div>
@@ -200,12 +200,12 @@ export function ChatList({
           </div>
         )}
         {user && inbox.isError && (
-          <p className="px-4 py-8 text-center text-sm text-destructive">Couldn't load conversations — pull to refresh or try again.</p>
+          <p className="px-4 py-8 text-center text-sm text-destructive">Couldn't load your chats — pull to refresh or try again.</p>
         )}
         {user && inbox.data?.length === 0 && (
           <div className="mx-2 mt-6 flex flex-col items-center rounded-3xl border border-dashed border-border p-10 text-center">
             <div className="grid h-14 w-14 place-items-center rounded-full bg-muted"><MessageCircle className="h-6 w-6 text-muted-foreground" /></div>
-            <p className="mt-4 font-display text-xl">{scope === "selling" ? "No buyer chats yet" : "No conversations yet"}</p>
+            <p className="mt-4 font-display text-xl">{scope === "selling" ? "No buyer chats yet" : "No chats yet"}</p>
             <p className="mt-1 max-w-xs text-sm text-muted-foreground">
               {scope === "selling"
                 ? "When buyers message you about your products, their chats land here — the AI assistant can help you answer."
