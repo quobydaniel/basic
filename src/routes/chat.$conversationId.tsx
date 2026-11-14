@@ -18,6 +18,35 @@ function WhatsAppIcon({ className }: { className?: string }) {
   );
 }
 
+// Presence badge — the tiny dot pinned to the avatar's corner (WhatsApp
+// pattern). Champagne for the AI, emerald for a live human. Rendered
+// OUTSIDE the avatar's overflow-hidden wrapper so it isn't clipped.
+function PresenceBadge({ kind }: { kind: "ai" | "online" }) {
+  return (
+    <span
+      aria-hidden
+      title={kind === "ai" ? "AI assistant on duty" : "Online now"}
+      className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full ring-2 ring-background ${
+        kind === "ai" ? "bg-gild" : "bg-emerald-500"
+      }`}
+    />
+  );
+}
+
+// Human "last seen" — granular where it matters, honest where it doesn't.
+function lastSeenLabel(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60_000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `today at ${new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  const d = Math.floor(h / 24);
+  if (d === 1) return "yesterday";
+  if (d < 7) return `${d} days ago`;
+  return new Date(iso).toLocaleDateString([], { day: "numeric", month: "short" });
+}
+
 export const Route = createFileRoute("/chat/$conversationId")({
   component: ThreadPageRoute,
 });
@@ -103,17 +132,20 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
 
   const isSeller = !!(convo.data && user && convo.data.seller_id === user.id);
 
-  // The party on the other side: the seller header shows the buyer's name
-  // and avatar (a chat header always shows WHO you're talking to), fetched
-  // separately from profiles — same best-effort pattern as ChatList.
-  const buyerProfile = useQuery({
-    queryKey: ["convo-buyer", convo.data?.buyer_id],
-    enabled: isSeller,
+  // The party on the other side — the seller header shows the buyer's name
+  // and avatar, and BOTH headers read the other party's last_seen_at for
+  // the online / last-seen presence line. Fetched separately from profiles
+  // (same best-effort pattern as ChatList); degrades silently when the
+  // last_seen_at column hasn't been migrated yet.
+  const otherId: string | null = convo.data ? (isSeller ? convo.data.buyer_id : convo.data.seller_id) : null;
+  const otherProfile = useQuery({
+    queryKey: ["convo-other", otherId],
+    enabled: !!otherId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles" as any)
-        .select("full_name, avatar_url")
-        .eq("id", convo.data!.buyer_id)
+        .select("full_name, avatar_url, last_seen_at")
+        .eq("id", otherId)
         .maybeSingle();
       if (error) return null;
       return (data ?? null) as any;
@@ -192,6 +224,19 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
 
   const store: any = convo.data?.store ?? null;
   const autoPilotOn = !!(user && isSeller && store?.plan === "pro" && store?.auto_pilot);
+
+  // ── Presence: is the other party online right now? ──
+  // last_seen_at is heartbeated by every signed-in client (session.ts); a
+  // beat within the last 90 seconds counts as online. The clock ticks every
+  // 30s so the "Last seen" label ages correctly while you watch.
+  const [, setPresenceTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setPresenceTick((x) => x + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const otherSeenAt = otherProfile.data?.last_seen_at as string | null | undefined;
+  const otherOnline = !!otherSeenAt && Date.now() - new Date(otherSeenAt).getTime() < 90_000;
+  const aiOnDuty = !isSeller && store?.plan === "pro" && store?.auto_pilot === true;
 
   // ── SELLER side: auto-pilot runs while the seller watches the thread ──
   // (Offline coverage is the buyer-triggered remote path below.) When
@@ -428,46 +473,65 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
           <ArrowLeft className="h-5 w-5" />
         </button>
         {isSeller ? (
-          <div className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-[var(--gold)]/15 text-sm font-bold text-[var(--gold)] ring-1 ring-gold/30">
-            {buyerProfile.data?.avatar_url ? (
-              <img src={buyerProfile.data.avatar_url} alt="" className="h-full w-full object-cover" />
-            ) : (
-              ((buyerProfile.data?.full_name ?? "B").trim().charAt(0).toUpperCase() || "B")
-            )}
+          <div className="relative shrink-0">
+            <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-[var(--gold)]/15 text-sm font-bold text-[var(--gold)] ring-1 ring-gold/30">
+              {otherProfile.data?.avatar_url ? (
+                <img src={otherProfile.data.avatar_url} alt="" className="h-full w-full object-cover" />
+              ) : (
+                ((otherProfile.data?.full_name ?? "B").trim().charAt(0).toUpperCase() || "B")
+              )}
+            </div>
+            {otherOnline && <PresenceBadge kind="online" />}
           </div>
         ) : (
-          <div className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-[var(--gold)]/15 font-display text-sm font-bold text-[var(--gold)] ring-1 ring-gold/30">
-            {convo.data?.store?.logo_url ? (
-              <img src={convo.data.store.logo_url} alt="" className="h-full w-full object-cover" />
-            ) : (
-              ((convo.data?.store?.name ?? "S").trim().charAt(0).toUpperCase() || "S")
-            )}
+          <div className="relative shrink-0">
+            <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-[var(--gold)]/15 font-display text-sm font-bold text-[var(--gold)] ring-1 ring-gold/30">
+              {convo.data?.store?.logo_url ? (
+                <img src={convo.data.store.logo_url} alt="" className="h-full w-full object-cover" />
+              ) : (
+                ((convo.data?.store?.name ?? "S").trim().charAt(0).toUpperCase() || "S")
+              )}
+            </div>
+            {aiOnDuty && <PresenceBadge kind="ai" />}
+            {!aiOnDuty && otherOnline && <PresenceBadge kind="online" />}
           </div>
         )}
         <div className="min-w-0 flex-1">
           <p className="line-clamp-1 font-semibold leading-tight">
-            {isSeller ? buyerProfile.data?.full_name || "Buyer" : convo.data?.store?.name ?? "…"}
+            {isSeller ? otherProfile.data?.full_name || "Buyer" : convo.data?.store?.name ?? "…"}
           </p>
           <p className={`flex items-center gap-1.5 text-[11px] leading-tight ${aiTyping ? "font-medium text-gild" : "text-muted-foreground"}`}>
-            {/* Presence dot: gold pulse while the AI composes, steady gold for
-                an AI-assisted store, green for a human-backed store. */}
+            {/* Presence line — four honest states: typing, AI on duty,
+                online now, last seen. The dot carries the state: gold pulse
+                while typing, champagne for the AI, emerald for a live
+                human, muted grey when away. */}
             <span
               aria-hidden
               className={`h-1.5 w-1.5 shrink-0 rounded-full ${
                 aiTyping
                   ? "animate-pulse bg-gild"
-                  : !isSeller && store?.plan === "pro" && store?.auto_pilot
+                  : aiOnDuty
                     ? "bg-gild"
-                    : "bg-gold"
+                    : otherOnline
+                      ? "bg-emerald-500"
+                      : otherSeenAt
+                        ? "bg-muted-foreground/50"
+                        : "bg-gold/60"
               }`}
             />
             {aiTyping
               ? isSeller ? "AI is replying…" : "typing…"
-              : isSeller
-                ? "Buyer conversation"
-                : store?.plan === "pro" && store?.auto_pilot
-                  ? "AI assistant on duty — replies fast"
-                  : "Usually replies within minutes"}
+              : aiOnDuty
+                ? otherOnline
+                  ? "✦ AI on duty — the seller is online too"
+                  : "✦ AI on duty — replies in seconds"
+                : otherOnline
+                  ? "Online now"
+                  : otherSeenAt
+                    ? `Last seen ${lastSeenLabel(otherSeenAt)}`
+                    : isSeller
+                      ? "Buyer conversation"
+                      : "Usually replies within minutes"}
           </p>
         </div>
         {/* Buyer: direct contact actions from the header (Jiji's ad-chat pattern) */}
