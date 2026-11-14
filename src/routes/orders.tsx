@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { CheckCircle2, Loader2, Package, Truck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CheckCircle2, ChevronDown, Loader2, Package, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { useSession } from "@/lib/session";
@@ -86,18 +86,67 @@ function OrdersPage() {
   const orders = useQuery({
     queryKey: ["buyer-orders", user?.id],
     enabled: !!user,
+    refetchInterval: 60_000, // track progress updates even without realtime
     queryFn: async () => {
       // Cast: the generated types are stale (they choke on store_id here and
       // already carry 8 baseline errors elsewhere) — runtime is fine.
       const { data, error } = await (supabase as any)
         .from("orders")
-        .select("id, order_number, status, total, currency, created_at, updated_at, buyer_confirmed_at, fulfillment_type, payment_term, store_id, store:stores(slug, name), order_items(product_title, quantity)")
+        .select("id, order_number, status, total, currency, created_at, updated_at, buyer_confirmed_at, fulfillment_type, payment_term, store_id, store:stores(slug, name, logo_url), order_items(product_title, quantity)")
         .eq("buyer_id", user!.id)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as any[];
     },
   });
+
+  // Live track progress: when the seller moves an order's status, both the
+  // cards and the timelines refresh immediately. Realtime first (works when
+  // the tables are in the publication), a 60s poll as the guaranteed floor.
+  useEffect(() => {
+    if (!user) return;
+    const ch = supabase
+      .channel(`buyer-orders:${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `buyer_id=eq.${user.id}` }, () => {
+        qc.invalidateQueries({ queryKey: ["buyer-orders", user.id] });
+        qc.invalidateQueries({ queryKey: ["buyer-order-events"] });
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "order_events" }, () => {
+        qc.invalidateQueries({ queryKey: ["buyer-order-events"] });
+        qc.invalidateQueries({ queryKey: ["buyer-orders", user.id] });
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [user, qc]);
+
+  // Product images for the cards: order_items carry only titles (and not
+  // always a variant), so match titles → products within the same store.
+  // Anything unmatched falls back to the store logo — every card gets a face.
+  const imgByStoreTitle = useQuery({
+    queryKey: ["buyer-order-imgs", (orders.data ?? []).map((o: any) => o.store_id).join(",")],
+    enabled: (orders.data ?? []).length > 0,
+    queryFn: async () => {
+      const storeIds = [...new Set((orders.data ?? []).map((o: any) => o.store_id).filter(Boolean))];
+      if (storeIds.length === 0) return {} as Record<string, string>;
+      const { data, error } = await (supabase as any)
+        .from("products")
+        .select("title, store_id, product_media(url)")
+        .in("store_id", storeIds)
+        .eq("status", "active")
+        .limit(200);
+      if (error) return {} as Record<string, string>;
+      const map: Record<string, string> = {};
+      for (const p of data ?? []) {
+        const url = p.product_media?.[0]?.url;
+        if (url) map[`${p.store_id}:${p.title.toLowerCase()}`] = url;
+      }
+      return map;
+    },
+  });
+  const itemImage = (o: any, title: string | null) =>
+    (title && imgByStoreTitle.data?.[`${o.store_id}:${title.toLowerCase()}`]) || o.store?.logo_url || null;
 
   // Status history per order. Graceful to a missing table (migration not yet
   // run): the timeline falls back to the order's current status alone.
@@ -134,7 +183,8 @@ function OrdersPage() {
   });
 
   // The buyer's existing conversations, by store — orders link straight
-  // back into the chat where the deal was made.
+  // back into the chat where the deal was made, and cancellation requests
+  // travel through the same thread.
   const convoByStore = useQuery({
     queryKey: ["buyer-convo-map", user?.id],
     enabled: !!user,
@@ -149,6 +199,46 @@ function OrdersPage() {
       return map;
     },
   });
+
+  // Cancellation: buyers can't cancel a placed order themselves — only the
+  // seller can. The button drops a request INTO the order's chat thread
+  // (message trigger already notifies the seller) and marks it locally.
+  const [cancelSent, setCancelSent] = useState<Set<string>>(new Set());
+  const [cancelBusy, setCancelBusy] = useState<string | null>(null);
+  async function requestCancellation(o: any) {
+    if (!user || cancelBusy) return;
+    const convoId = convoByStore.data?.[o.store_id];
+    if (!convoId) return toast.error("Open a chat with this seller first, then request the cancellation there.");
+    setCancelBusy(o.id);
+    try {
+      const { error } = await (supabase as any).from("messages").insert({
+        conversation_id: convoId,
+        sender_id: user.id,
+        kind: "system_order",
+        body: `Cancellation requested by the buyer for order ${o.order_number} (${o.currency} ${o.total}) — only the seller can cancel a placed order, so please review it in Orders.`,
+        metadata: { order_id: o.id, cancel_request: true },
+      });
+      if (error) throw error;
+      setCancelSent((s) => new Set(s).add(o.id));
+      toast.success("Cancellation request sent — the seller will review it.");
+      qc.invalidateQueries({ queryKey: ["msgs", convoId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not send the request");
+    } finally {
+      setCancelBusy(null);
+    }
+  }
+
+  // Track: cards stay compact (one-line stage) until the buyer opens the
+  // full timeline for a specific order.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleTrack = (id: string) =>
+    setExpanded((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   // Rider leg: delivery_requests created when the seller ships (or files one
   // manually). Missing table / no rows just means "no rider assigned yet".
@@ -236,29 +326,51 @@ function OrdersPage() {
               Nothing in this bucket right now.
             </p>
           )}
-          {visible.map((o: any) => (
+          {visible.map((o: any) => {
+            const firstItem = (o.order_items ?? [])[0];
+            const img = itemImage(o, firstItem?.product_title ?? null);
+            const items = (o.order_items ?? []).map((it: any) => `${it.quantity}× ${it.product_title}`).join(", ");
+            const open = expanded.has(o.id);
+            const canCancel = isActiveStatus(o.status) && !["shipped"].includes(o.status);
+            return (
             <li key={o.id} className="rounded-2xl border border-border bg-card p-4">
-              <div className="flex items-baseline justify-between">
-                <p className="font-medium">{o.order_number}</p>
-                <p className="font-display text-lg">{formatGHS(o.total, { currency: o.currency })}</p>
-              </div>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {new Date(o.created_at).toLocaleDateString()} · {o.store?.name}
-                {convoByStore.data?.[o.store_id as string] && (
-                  <>
-                    {" · "}
-                    <Link
-                      to="/chat/$conversationId"
-                      params={{ conversationId: convoByStore.data![o.store_id as string] }}
-                      className="font-semibold text-gold hover:underline"
-                    >
-                      Open chat
-                    </Link>
-                  </>
+              <div className="flex gap-3">
+                {/* Product face — matched listing image, store logo fallback */}
+                {img && (
+                  <img
+                    src={img}
+                    alt=""
+                    loading="lazy"
+                    className="h-14 w-14 shrink-0 rounded-xl border border-border/60 object-cover"
+                  />
                 )}
-              </p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="font-medium">{o.order_number}</p>
+                    <p className="font-display text-lg">{formatGHS(o.total, { currency: o.currency })}</p>
+                  </div>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {items || (o.store?.name ?? "")}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {new Date(o.created_at).toLocaleDateString()} · {o.store?.name}
+                    {convoByStore.data?.[o.store_id as string] && (
+                      <>
+                        {" · "}
+                        <Link
+                          to="/chat/$conversationId"
+                          params={{ conversationId: convoByStore.data![o.store_id as string] }}
+                          className="font-semibold text-gold hover:underline"
+                        >
+                          Open chat
+                        </Link>
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
               {(o.fulfillment_type || o.payment_term) && (
-                <p className="mt-1 flex flex-wrap gap-1">
+                <p className="mt-2 flex flex-wrap gap-1">
                   {o.fulfillment_type && (
                     <span className="rounded-full border border-border px-2 py-0.5 text-[10px] capitalize">
                       {o.fulfillment_type.replace(/_/g, " ")}
@@ -271,35 +383,79 @@ function OrdersPage() {
                   )}
                 </p>
               )}
-              {/* Items — render only when the order actually has them; a few
-                  legacy/AI-era orders carry no order_items rows and an empty
-                  line here just reads as a glitch. */}
-              {(o.order_items ?? []).length > 0 && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {(o.order_items ?? []).map((it: any) => `${it.quantity}× ${it.product_title}`).join(", ")}
+
+              {/* Track — compact stage line by default; the full timeline
+                  opens per-order so 14 pending cards stop towering. */}
+              <div className="mt-3 flex items-center justify-between gap-2 border-t border-border/40 pt-2.5">
+                <p className="flex items-center gap-2 text-xs">
+                  <span
+                    aria-hidden
+                    className={`h-2 w-2 rounded-full ${o.status === "delivered" ? "bg-emerald-500" : o.status === "cancelled" ? "bg-destructive" : "bg-[var(--gold)]"}`}
+                  />
+                  <span className="font-semibold capitalize text-foreground">
+                    {o.status.replace(/_/g, " ")}
+                  </span>
+                  <span className="text-muted-foreground">
+                    · {new Date(o.updated_at || o.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                  </span>
                 </p>
+                <button
+                  onClick={() => toggleTrack(o.id)}
+                  className="flex shrink-0 items-center gap-1 rounded-full border border-border px-3 py-1 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-gold/50 hover:text-gold"
+                  aria-expanded={open}
+                >
+                  {open ? "Hide" : "Track"} <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+                </button>
+              </div>
+
+              {open && (
+                <>
+                  <OrderTimeline
+                    status={o.status}
+                    events={eventsByOrder.data?.[o.id]}
+                    placedAt={o.created_at}
+                    updatedAt={o.updated_at}
+                  />
+
+                  {/* Rider leg — shows once the seller ships and a delivery exists */}
+                  {(() => {
+                    const d = deliveryByOrder.data?.[o.id];
+                    if (!d || o.status === "cancelled" || o.status === "refunded") return null;
+                    return (
+                      <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                        <Truck className="h-3.5 w-3.5 shrink-0 text-[var(--gold)]" />
+                        <span className="font-medium text-foreground">{DELIVERY_LABEL[d.status] ?? "Delivery in progress"}</span>
+                        {d.dropoff_address && <span>· {d.dropoff_address}</span>}
+                        {d.rider?.vehicle_type && <span>· {String(d.rider.vehicle_type).replace(/_/g, " ")}</span>}
+                      </p>
+                    );
+                  })()}
+                </>
               )}
 
-              <OrderTimeline
-                status={o.status}
-                events={eventsByOrder.data?.[o.id]}
-                placedAt={o.created_at}
-                updatedAt={o.updated_at}
-              />
-
-              {/* Rider leg — shows once the seller ships and a delivery exists */}
-              {(() => {
-                const d = deliveryByOrder.data?.[o.id];
-                if (!d || o.status === "cancelled" || o.status === "refunded") return null;
-                return (
-                  <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                    <Truck className="h-3.5 w-3.5 shrink-0 text-[var(--gold)]" />
-                    <span className="font-medium text-foreground">{DELIVERY_LABEL[d.status] ?? "Delivery in progress"}</span>
-                    {d.dropoff_address && <span>· {d.dropoff_address}</span>}
-                    {d.rider?.vehicle_type && <span>· {String(d.rider.vehicle_type).replace(/_/g, " ")}</span>}
-                  </p>
-                );
-              })()}
+              {/* Actions — cancel requests travel through the seller's chat:
+                  only they can cancel a placed order, so the buyer asks and
+                  the seller confirms in their Orders dashboard. */}
+              {isActiveStatus(o.status) && o.status !== "shipped" && (
+                <div className="mt-3 flex justify-end">
+                  <button
+                    onClick={() => requestCancellation(o)}
+                    disabled={cancelBusy === o.id || cancelSent.has(o.id)}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-semibold transition-colors ${
+                      cancelSent.has(o.id)
+                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
+                        : "border-border text-muted-foreground hover:border-destructive/50 hover:text-destructive"
+                    } disabled:opacity-60`}
+                  >
+                    {cancelBusy === o.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : cancelSent.has(o.id) ? (
+                      <CheckCircle2 className="h-3 w-3" />
+                    ) : null}
+                    {cancelSent.has(o.id) ? "Request sent" : cancelBusy === o.id ? "Sending…" : "Request cancellation"}
+                  </button>
+                </div>
+              )}
 
               {o.status === "delivered" && (
                 o.buyer_confirmed_at ? (
@@ -323,7 +479,8 @@ function OrdersPage() {
                 )
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </AppShell>
