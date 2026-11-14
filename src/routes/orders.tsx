@@ -155,7 +155,7 @@ function OrdersPage() {
   };
 
   return (
-    <AppShell noFooter>
+    <AppShell>
       <div className="px-4 pt-4 md:px-8 md:pt-8">
         <h1 className="font-display text-3xl">Orders</h1>
         <p className="mt-1 text-sm text-muted-foreground">Track everything you've bought on BASIC.</p>

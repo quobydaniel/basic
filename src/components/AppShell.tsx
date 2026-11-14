@@ -25,11 +25,9 @@ const tabs = [
 export function AppShell({
   children,
   productId,
-  noFooter = false,
 }: {
   children: ReactNode;
   productId?: string;
-  noFooter?: boolean;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   // Chat is an app-like surface: full-height messenger, no footer and no
@@ -52,7 +50,8 @@ export function AppShell({
     <div className="min-h-screen bg-background text-foreground">
       <TopBar />
       <main className={`mx-auto max-w-2xl md:max-w-6xl ${isChat ? "pb-0" : "pb-28 md:pb-16"}`}>{children}</main>
-      {!appSurface && !noFooter && <SiteFooter />}
+      {/* Footer lives ONLY on the Account page now — every other surface
+          stays content-first (Jiji/Temu pattern). */}
       {!appSurface && <BottomTabBar />}
       {showAssistant && <FloatingBuyerAssistant productId={productId} context={context} />}
     </div>
@@ -196,8 +195,9 @@ function BottomTabBar() {
   );
 }
 
-/* Obsidian footer — a quiet colophon on charcoal, gold hairlines. */
-function SiteFooter() {
+/* Obsidian footer — a quiet colophon on charcoal, gold hairlines.
+   Exported for the Account page — the one place a footer belongs. */
+export function SiteFooter() {
   return (
     <footer className="mt-16 border-t border-border/60 bg-card/40">
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-12 md:grid-cols-[1.4fr_1fr_1fr_1fr] md:px-8">

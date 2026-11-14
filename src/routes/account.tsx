@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { Bike, ChevronRight, Gem, Heart, LogOut, MessageCircle, Package, Sparkles, Store as StoreIcon, User } from "lucide-react";
-import { AppShell } from "@/components/AppShell";
+import { AppShell, SiteFooter } from "@/components/AppShell";
 import { useSession } from "@/lib/session";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -266,6 +266,10 @@ function AccountPage() {
           </>
         )}
       </div>
+
+      {/* The site footer lives here and ONLY here — Account is the house-keeping
+          page; every other surface stays content-first (Jiji/Temu pattern). */}
+      <SiteFooter />
     </AppShell>
   );
 }

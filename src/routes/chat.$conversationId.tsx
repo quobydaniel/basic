@@ -1,12 +1,11 @@
-import { createFileRoute, Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone } from "lucide-react";
+import { ArrowLeft, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
-import { draftChatReplies, autoPilotReply, placeChatOrder } from "@/lib/ai.functions";
-import { acquireAutoPilot, releaseAutoPilot } from "@/lib/autopilot-lock";
+import { draftChatReplies, autoPilotReply, autoPilotReplyRemote, placeChatOrder } from "@/lib/ai.functions";
 import { formatGHS } from "@/lib/format";
 import { toast } from "sonner";
 
@@ -14,7 +13,7 @@ import { toast } from "sonner";
 function WhatsAppIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
-      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 002.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
     </svg>
   );
 }
@@ -55,13 +54,14 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   const { user } = useSession();
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const backTo = pathname.startsWith("/dashboard/chats") ? "/dashboard/chats" : "/chat";
   const draft = useServerFn(draftChatReplies);
 
   const [text, setText] = useState("");
   const [drafts, setDrafts] = useState<string[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
+  // True while the store's AI (auto-pilot) is composing its reply — renders
+  // the WhatsApp-style typing bubble so the buyer knows the seller got it.
+  const [aiTyping, setAiTyping] = useState(false);
   const [showOrderPanel, setShowOrderPanel] = useState(false);
   const [buyQty, setBuyQty] = useState(1);
   const [buying, setBuying] = useState(false);
@@ -77,7 +77,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("conversations" as any)
-        .select("id, buyer_id, seller_id, store_id, product_id, store:stores(id, name, logo_url, slug, plan, whatsapp_number), product:products(id, slug, title, base_price, currency, product_media(url))")
+        .select("id, buyer_id, seller_id, store_id, product_id, store:stores(id, name, logo_url, slug, plan, auto_pilot, whatsapp_number), product:products(id, slug, title, base_price, currency, product_media(url))")
         .eq("id", conversationId)
         .single();
       if (error) throw error;
@@ -97,20 +97,6 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
       return (data ?? []) as any as Msg[];
     },
   });
-
-  // Store auto-pilot meta — resilient to the migration not being run yet
-  // (missing column just means "OFF" instead of killing the whole thread).
-  const storeMeta = useQuery({
-    queryKey: ["store-autopilot-meta", convo.data?.store_id],
-    enabled: !!convo.data?.store_id,
-    retry: 0,
-    queryFn: async () => {
-      const { data, error } = await (supabase.from("stores" as any).select("id, plan, auto_pilot").eq("id", convo.data!.store_id).maybeSingle() as any);
-      if (error) return { plan: null, auto_pilot: null } as any;
-      return data as any;
-    },
-  });
-  const storeMetaRow = storeMeta.data as { plan: string | null; auto_pilot: boolean | null } | undefined;
 
   // Realtime. removeChannel is async — if a fast effect re-run finds the
   // old channel still subscribed, reuse it rather than re-attaching
@@ -155,22 +141,20 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   // Auto-scroll
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [msgs.data?.length]);
+  }, [msgs.data?.length, aiTyping]);
 
-  // AI talks to buyers on the seller's behalf. Two modes for Pro stores:
-  // auto-pilot OFF (default) → pre-draft replies the seller reviews and sends.
-  // auto-pilot ON → the AI SENDS by itself: answers buyers, takes orders
-  // (creates them), and alerts the seller to confirm. Fires once per new
-  // buyer message while the thread is open; the dashboard copilot answers
-  // questions when the thread is closed.
+  const isSeller = !!(convo.data && user && convo.data.seller_id === user.id);
+  const store: any = convo.data?.store ?? null;
+  const autoPilotOn = !!(user && isSeller && store?.plan === "pro" && store?.auto_pilot);
+
+  // ── SELLER side: AI drafts / auto-pilot while the seller is online ──
   const lastMsg = msgs.data?.[msgs.data.length - 1];
   const autoRef = useRef<string | null>(null);
-  const autoPilotOn = !!(user && convo.data?.seller_id === user.id && (convo.data?.store as any)?.plan === "pro" && (convo.data?.store as any)?.auto_pilot);
   const autoPilot = useServerFn(autoPilotReply);
   useEffect(() => {
     if (!user || !convo.data || !lastMsg) return;
     if (convo.data.seller_id !== user.id) return;
-    if ((convo.data.store as any)?.plan !== "pro") return;
+    if (store?.plan !== "pro") return;
     if (lastMsg.sender_id === user.id) return;
     if (autoRef.current === lastMsg.id) return;
     autoRef.current = lastMsg.id;
@@ -189,12 +173,35 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     }
   }, [user, convo.data, lastMsg, conversationId, draft, autoPilot, autoPilotOn]);
 
+  // ── BUYER side: the offline-seller auto-reply ──
+  // When the store runs Pro auto-pilot, the buyer's send pings the server and
+  // the store answers as the seller — even if the seller's browser is closed.
+  // Fires when the newest message is the buyer's (new sends AND a backlog
+  // left unanswered), at most once per message, ~1s in so it feels human.
+  const remoteReply = useServerFn(autoPilotReplyRemote);
+  const pilotFiredRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!user || !convo.data || !lastMsg || isSeller) return;
+    if (store?.plan !== "pro" || !store?.auto_pilot) return;
+    if (lastMsg.sender_id !== user.id) return;
+    if (pilotFiredRef.current.has(lastMsg.id)) return;
+    pilotFiredRef.current.add(lastMsg.id);
+    const t = setTimeout(() => {
+      setAiTyping(true);
+      remoteReply({ data: { conversation_id: conversationId } })
+        .then(() => qc.invalidateQueries({ queryKey: ["msgs", conversationId] }))
+        .catch(() => {}) // silent by design — the seller's AI failing must never look like the buyer's fault
+        .finally(() => setAiTyping(false));
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [user, convo.data, lastMsg, isSeller, conversationId, remoteReply, qc]);
+
   // Toggle: seller flips the store's auto-pilot from the thread header.
   const pilotBusy = useRef(false);
   async function toggleAutoPilot() {
     if (!user || !convo.data || pilotBusy.current) return;
-    const storeId = (convo.data.store as any)?.id;
-    const next = !(convo.data.store as any)?.auto_pilot;
+    const storeId = store?.id;
+    const next = !store?.auto_pilot;
     if (!storeId) return;
     pilotBusy.current = true;
     try {
@@ -315,14 +322,13 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     qc.invalidateQueries({ queryKey: ["msgs", conversationId] });
   }
 
-  const isSeller = convo.data && user && convo.data.seller_id === user.id;
   const product = convo.data?.product;
   const productImage = product?.product_media?.[0]?.url;
 
   // Seller contacts — whatever the seller saved in their storefront settings
   // (WhatsApp number) powers both Call and WhatsApp for the buyer. No number
   // saved → the buttons simply don't show.
-  const rawWa = (convo.data?.store as any)?.whatsapp_number as string | null | undefined;
+  const rawWa = store?.whatsapp_number as string | null | undefined;
   const waDigits = rawWa ? rawWa.replace(/\D/g, "").replace(/^0/, "233") : null;
   const waText = encodeURIComponent(
     `Hi ${convo.data?.store?.name ?? ""}, I'm messaging about "${product?.title ?? "your listing"}" on BASIC.`,
@@ -340,56 +346,87 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     items.push({ type: "msg", m });
   }
 
+  // Buyer icebreakers (Jiji-style) — only while the conversation is fresh.
+  // msgs.isLoading is gated too: while loading, length reads 0 and the chips
+  // would flash on threads that aren't actually fresh.
+  const showIcebreakers = !isSeller && !msgs.isLoading && (msgs.data?.length ?? 0) <= 1 && !aiTyping;
+  const icebreakers = ["Is this still available?", "Do you deliver? Where to?", "What's your best price?"];
+
   return (
-    <div className="flex h-[100dvh] flex-col bg-background text-foreground md:mx-auto md:w-full md:max-w-3xl md:border-x md:border-border">
-      {/* Header */}
-      <header className="z-10 flex items-center gap-3 border-b border-border bg-background/95 px-3 py-2.5 backdrop-blur">
-        <button onClick={() => navigate({ to: "/chat" })} className="grid h-9 w-9 place-items-center rounded-full hover:bg-accent" aria-label="Back">
+    <div className="flex h-full flex-col bg-background text-foreground">
+      {/* Header — Jiji-style: who you're talking to, presence, one-tap call/WhatsApp */}
+      <header className="z-10 flex items-center gap-2.5 border-b border-border bg-background/95 px-3 py-2.5 backdrop-blur">
+        <button onClick={() => navigate({ to: isSeller ? "/dashboard/chats" : "/chat" })} className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-accent" aria-label="Back">
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <div className="h-10 w-10 overflow-hidden rounded-full bg-muted ring-1 ring-gold/30">
+        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted ring-1 ring-gold/30">
           {convo.data?.store?.logo_url && <img src={convo.data.store.logo_url} alt="" className="h-full w-full object-cover" />}
         </div>
         <div className="min-w-0 flex-1">
           <p className="line-clamp-1 font-semibold leading-tight">{convo.data?.store?.name ?? "…"}</p>
-          <p className="text-[11px] text-muted-foreground">{isSeller ? "Buyer conversation" : "Usually replies within a few hours"}</p>
+          <p className={`text-[11px] leading-tight ${aiTyping ? "font-medium text-gold" : "text-muted-foreground"}`}>
+            {aiTyping ? "typing…" : isSeller ? "Buyer conversation" : "Usually replies within minutes"}
+          </p>
         </div>
+        {/* Buyer: direct contact actions from the header (Jiji's ad-chat pattern) */}
+        {!isSeller && waDigits && (
+          <div className="flex shrink-0 items-center gap-0.5">
+            <a
+              href={`tel:+${waDigits}`}
+              aria-label="Call the seller"
+              title="Call"
+              className="grid h-9 w-9 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Phone className="h-[18px] w-[18px]" />
+            </a>
+            <a
+              href={`https://wa.me/${waDigits}?text=${waText}`}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="WhatsApp the seller"
+              title="WhatsApp"
+              className="grid h-9 w-9 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-[#25D366]"
+            >
+              <WhatsAppIcon className="h-[18px] w-[18px]" />
+            </a>
+          </div>
+        )}
         {/* Seller: AI auto-pilot switch — Pro stores only */}
-        {isSeller && (convo.data.store as any)?.plan === "pro" && (
+        {isSeller && store?.plan === "pro" && (
           <button
             type="button"
             onClick={toggleAutoPilot}
-            className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors ${
-              (convo.data.store as any)?.auto_pilot
+            className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
+              store?.auto_pilot
                 ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-500"
                 : "border-border text-muted-foreground hover:text-foreground"
             }`}
-            title="When ON, the AI replies to buyers, takes orders and alerts you automatically."
+            title="When ON, the AI replies to buyers, takes orders and alerts you — even while you're away."
           >
             <Sparkles className="h-3.5 w-3.5" />
-            Auto-pilot {(convo.data.store as any)?.auto_pilot ? "ON" : "OFF"}
+            <span className="hidden sm:inline">Auto-pilot</span> {store?.auto_pilot ? "ON" : "OFF"}
           </button>
         )}
       </header>
 
-      {/* Product context card */}
+      {/* Product context card — tap anywhere to open the listing */}
       {product && (
-        <div className="z-10 flex items-center gap-3 border-b border-border bg-card px-3 py-2.5">
+        <Link
+          to="/s/$storeSlug/p/$productSlug"
+          params={{ storeSlug: convo.data.store.slug, productSlug: product.slug }}
+          className="z-10 flex items-center gap-3 border-b border-border bg-card px-3 py-2.5 transition-colors hover:bg-accent/60"
+        >
           <div className="h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-muted">
             {productImage && <img src={productImage} alt="" className="h-full w-full object-cover" />}
           </div>
           <div className="min-w-0 flex-1">
             <p className="line-clamp-1 text-sm font-medium">{product.title}</p>
-            <p className="text-xs text-muted-foreground">{formatGHS(product.base_price, { currency: product.currency })}</p>
+            <p className="text-xs font-semibold text-gold">{formatGHS(product.base_price, { currency: product.currency })}</p>
           </div>
-          <Link
-            to="/s/$storeSlug/p/$productSlug"
-            params={{ storeSlug: convo.data.store.slug, productSlug: product.slug }}
-            className="shrink-0 rounded-full border border-border px-3 py-1.5 text-xs hover:bg-accent"
-          >
-            View
-          </Link>
-        </div>
+          <span className="shrink-0 rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground">
+            View <ChevronRight className="mb-0.5 inline h-3 w-3" />
+          </span>
+        </Link>
       )}
 
       {/* Messages */}
@@ -429,13 +466,17 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
                 </div>
               );
             }
+            // Consecutive messages from the same sender stack tighter, with
+            // the tail only on the last bubble of the run (WhatsApp pattern).
+            const nextMsg = items[idx + 1];
+            const lastOfRun = !(nextMsg && nextMsg.type === "msg" && nextMsg.m.sender_id === m.sender_id && nextMsg.m.kind !== "system_order" && nextMsg.m.kind !== "system_delivery");
             return (
               <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                 <div
-                  className={`max-w-[78%] rounded-2xl px-3.5 py-2 text-[15px] leading-snug shadow-sm ${
+                  className={`max-w-[80%] px-3.5 py-2 text-[15px] leading-snug shadow-sm ${
                     mine
-                      ? "rounded-br-md bg-[var(--gold)] text-[var(--gold-foreground)]"
-                      : "rounded-bl-md border border-border/60 bg-card text-foreground"
+                      ? `bg-[var(--gold)] text-[var(--gold-foreground)] ${lastOfRun ? "rounded-2xl rounded-br-md" : "rounded-2xl rounded-br-md rounded-tr-md"}`
+                      : `border border-border/60 bg-card text-foreground ${lastOfRun ? "rounded-2xl rounded-bl-md" : "rounded-2xl rounded-bl-md rounded-tl-md"}`
                   }`}
                 >
                   {m.kind === "image" && Array.isArray(m.attachments) && m.attachments[0]?.url && (
@@ -450,6 +491,16 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
               </div>
             );
           })}
+          {/* Store AI is typing — WhatsApp-style bubble */}
+          {aiTyping && (
+            <div className="flex justify-start">
+              <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-md border border-border/60 bg-card px-4 py-3 shadow-sm" aria-label="Seller is typing">
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:0ms]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:150ms]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:300ms]" />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -457,8 +508,8 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
       {isSeller && drafts.length > 0 && (
         <div className="border-t border-border bg-card/60 px-3 py-2 backdrop-blur">
           <div className="flex items-center justify-between">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              AI reply drafts
+            <p className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <Sparkles className="h-3 w-3 text-gold" /> AI reply drafts
             </p>
             <button onClick={() => setDrafts([])} aria-label="Clear drafts" className="grid h-6 w-6 place-items-center rounded-full hover:bg-accent">
               <X className="h-3 w-3" />
@@ -517,6 +568,21 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
         </div>
       )}
 
+      {/* BUYER: icebreaker chips (Jiji) while the conversation is fresh */}
+      {showIcebreakers && (
+        <div className="no-scrollbar flex gap-2 overflow-x-auto border-t border-border bg-card/60 px-3 py-2 backdrop-blur">
+          {icebreakers.map((chip) => (
+            <button
+              key={chip}
+              onClick={() => send(chip)}
+              className="shrink-0 rounded-full border border-border bg-background px-3.5 py-1.5 text-xs text-foreground transition-colors hover:border-gold/60 hover:text-gold"
+            >
+              {chip}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* BUYER: one-tap order closer */}
       {!isSeller && product && (
         <div className="flex items-center gap-2 border-t border-border bg-card px-3 py-2">
@@ -542,32 +608,6 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
       {/* Composer */}
       <div className="border-t border-border bg-background px-3 pb-2 pt-2" style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
         <div className="mx-auto flex max-w-2xl items-end gap-1.5">
-          {/* Contact actions (buyer only) — reflect the contacts the seller
-              saved in their storefront settings. WhatsApp sits next to the
-              image icon with a breath of space; call is mobile-only since
-              desktops don't dial. */}
-          {!isSeller && waDigits && (
-            <div className="flex shrink-0 items-center gap-1.5">
-              <a
-                href={`https://wa.me/${waDigits}?text=${waText}`}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="WhatsApp the seller"
-                title="WhatsApp"
-                className="grid h-11 w-11 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-[#25D366]"
-              >
-                <WhatsAppIcon className="h-5 w-5" />
-              </a>
-              <a
-                href={`tel:+${waDigits}`}
-                aria-label="Call the seller"
-                title="Call"
-                className="grid h-11 w-11 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden"
-              >
-                <Phone className="h-5 w-5" />
-              </a>
-            </div>
-          )}
           <label className="grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-accent" aria-label="Attach image">
             <ImageIcon className="h-5 w-5" />
             <input type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && uploadImage(e.target.files[0])} />

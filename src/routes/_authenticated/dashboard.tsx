@@ -47,7 +47,12 @@ function SellerAutoPilot() {
           .from("conversations")
           .select("id, store_id, store:stores(auto_pilot, plan)")
           .in("store_id", ids)
-          .gt("unread_buyer", 0)
+          // unread_seller = messages the seller hasn't read (fresh buyer
+          // pings). The old condition polled unread_buyer — conversations
+          // where the SELLER had replied and the buyer hadn't opened yet,
+          // exactly when the AI has nothing to answer — so the heartbeat
+          // never fired in the moment it exists for.
+          .gt("unread_seller", 0)
           .limit(5);
         for (const c of (convos ?? []) as any[]) {
           if (stopped) return;
