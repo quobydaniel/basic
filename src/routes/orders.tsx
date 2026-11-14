@@ -83,6 +83,17 @@ function OrdersPage() {
   const [bucket, setBucket] = useState<"all" | "active" | "done">("all");
   const isActiveStatus = (s: string) => ["pending", "paid", "fulfilled", "shipped"].includes(s);
 
+  // Escrow view of an order — derived from payment_term + status + buyer
+  // confirmation (display only for now; real funds movement comes later).
+  const escrowState = (o: any): { label: string; tone: "sage" | "gold" } | null => {
+    const confirmed = !!o.buyer_confirmed_at;
+    if (o.status === "delivered" && confirmed) return { label: "Escrow released ✓", tone: "sage" };
+    if (o.payment_term === "pay_before_delivery" && ["paid", "fulfilled", "shipped"].includes(o.status)) return { label: "Funds held in escrow — released on delivery", tone: "gold" };
+    if (o.payment_term === "escrow") return { label: "Escrow — funds held until delivery", tone: "gold" };
+    if (o.payment_term === "pay_on_delivery") return o.status === "delivered" ? { label: "Paid on delivery ✓", tone: "sage" } : { label: "Cash due on delivery", tone: "gold" };
+    return null;
+  };
+
   const orders = useQuery({
     queryKey: ["buyer-orders", user?.id],
     enabled: !!user,
@@ -379,6 +390,11 @@ function OrdersPage() {
                   {o.payment_term && (
                     <span className="rounded-full border border-[var(--gold)]/40 bg-[var(--gold)]/10 px-2 py-0.5 text-[10px] capitalize">
                       {o.payment_term.replace(/_/g, " ")}
+                    </span>
+                  )}
+                  {escrowState(o) && (
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${escrowState(o)!.tone === "sage" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600" : "border-[var(--gold)]/50 bg-[var(--gold)]/10 text-foreground"}`}>
+                      {escrowState(o)!.label}
                     </span>
                   )}
                 </p>
