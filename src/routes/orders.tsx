@@ -13,6 +13,13 @@ export const Route = createFileRoute("/orders")({
   component: OrdersPage,
 });
 
+// Supabase errors surface as plain PostgrestError objects (not Error
+// instances) — instanceof-based extraction loses the message.
+function errMsg(e: unknown): string {
+  if (typeof e === "string") return e;
+  return (e as any)?.message ?? "";
+}
+
 const STEPS = [
   { key: "pending", label: "Placed" },
   { key: "paid", label: "Paid" },
@@ -190,7 +197,7 @@ function OrdersPage() {
       toast.success("Thanks — the seller has been notified.");
       qc.invalidateQueries({ queryKey: ["buyer-orders"] });
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not confirm"),
+    onError: (e) => toast.error(errMsg(e) || "Could not confirm"),
   });
 
   // The buyer's existing conversations, by store — orders link straight
@@ -234,7 +241,7 @@ function OrdersPage() {
       toast.success("Cancellation request sent — the seller will review it.");
       qc.invalidateQueries({ queryKey: ["msgs", convoId] });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not send the request");
+      toast.error(errMsg(e) || "Could not send the request");
     } finally {
       setCancelBusy(null);
     }
@@ -275,7 +282,7 @@ function OrdersPage() {
       toast.success("Order cancelled — the seller has been notified in chat.");
       qc.invalidateQueries({ queryKey: ["buyer-orders"] });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not cancel");
+      toast.error(errMsg(e) || "Could not cancel");
     } finally {
       setCancelBusy(null);
     }
@@ -293,8 +300,8 @@ function OrdersPage() {
       qc.invalidateQueries({ queryKey: ["buyer-orders"] });
     },
     onError: (e) => {
-      const m = e instanceof Error ? e.message : "Could not delete";
-      toast.error(/row-level|policy|42501/i.test(m) ? "One-time setup needed — run apply-pending-2026-11-14j.sql in Supabase." : m);
+      const m = errMsg(e);
+      toast.error(/row-level|policy|42501/i.test(m) ? "One-time setup needed — run apply-pending-2026-11-14j.sql in Supabase." : m || "Could not delete");
     },
   });
 

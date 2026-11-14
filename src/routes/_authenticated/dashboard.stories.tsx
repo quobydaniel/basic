@@ -17,9 +17,15 @@ export const Route = createFileRoute("/_authenticated/dashboard/stories")({
   component: StoriesPage,
 });
 
+// Supabase errors arrive as plain PostgrestError objects (not Error
+// instances), so message extraction can't rely on instanceof.
+function errMsg(e: unknown): string {
+  if (typeof e === "string") return e;
+  return (e as any)?.message ?? String(e);
+}
+
 function setupNeeded(e: unknown): boolean {
-  const m = e instanceof Error ? e.message : String(e);
-  return /PGRST205|schema cache|Could not find the table|does not exist/i.test(m);
+  return /PGRST205|schema cache|Could not find the table|does not exist/i.test(errMsg(e));
 }
 
 function timeLeft(expiresAt: string): string {
@@ -147,7 +153,7 @@ function StoriesPage() {
       qc.invalidateQueries({ queryKey: ["store-stories"] });
     },
     onError: (e) => {
-      const m = e instanceof Error ? e.message : "";
+      const m = errMsg(e);
       toast.error(setupNeeded(m) ? "One-time setup needed — run apply-pending-2026-11-14k.sql in Supabase." : m || "Could not post story");
     },
   });
@@ -170,7 +176,7 @@ function StoriesPage() {
       qc.invalidateQueries({ queryKey: ["dashboard-stories"] });
       qc.invalidateQueries({ queryKey: ["store-stories"] });
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not delete"),
+    onError: (e) => toast.error(errMsg(e) || "Could not delete"),
   });
 
   if (stores.isLoading) {
