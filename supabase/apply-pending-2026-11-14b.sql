@@ -140,7 +140,7 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
     WHERE schemaname = 'public' AND tablename = 'profiles'
-      AND policy_name = 'profiles_basic_names_public'
+      AND policyname = 'profiles_basic_names_public'
   ) THEN
     CREATE POLICY profiles_basic_names_public ON public.profiles
       FOR SELECT TO anon USING (true);
