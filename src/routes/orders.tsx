@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronDown, Loader2, Package, Truck } from "lucide-react";
+import { CheckCircle2, ChevronDown, Loader2, Package, Trash2, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { useSession } from "@/lib/session";
@@ -79,8 +79,8 @@ function OrdersPage() {
   const { user, loading } = useSession();
   const qc = useQueryClient();
   // Status buckets — 15 pending cards in a row is noise; buyers think in
-  // "what's moving" vs "what's done".
-  const [bucket, setBucket] = useState<"all" | "active" | "done">("all");
+  // "what's moving" vs "what's done" vs "what died".
+  const [bucket, setBucket] = useState<"all" | "active" | "done" | "cancelled">("all");
   const isActiveStatus = (s: string) => ["pending", "paid", "fulfilled", "shipped"].includes(s);
 
   // Escrow view of an order — derived from payment_term + status + buyer
@@ -240,6 +240,64 @@ function OrdersPage() {
     }
   }
 
+  // Direct cancel — a PENDING order is still fully the buyer's (nothing has
+  // been captured), so they can pull it outright via the cancel_order_by_buyer
+  // RPC. Paid+ orders keep the request-to-seller flow above. The chat thread
+  // gets an informational card (no confirm/decline prompt — it already
+  // happened) so the seller sees the cancellation without opening Orders.
+  async function cancelOrder(o: any) {
+    if (!user || cancelBusy) return;
+    setCancelBusy(o.id);
+    try {
+      const { error } = await (supabase as any).rpc("cancel_order_by_buyer", { p_order_id: o.id });
+      if (error) {
+        const m = error.message || "";
+        toast.error(
+          /pending/i.test(m)
+            ? m
+            : /schema|exist|permission/i.test(m)
+              ? "One-time setup needed — run apply-pending-2026-11-14j.sql in Supabase."
+              : m || "Could not cancel",
+        );
+        return;
+      }
+      const convoId = convoByStore.data?.[o.store_id];
+      if (convoId) {
+        await (supabase as any).from("messages").insert({
+          conversation_id: convoId,
+          sender_id: user.id,
+          kind: "system_order",
+          body: `Order ${o.order_number} was cancelled by the buyer.`,
+          metadata: { order_id: o.id, cancelled_by_buyer: true },
+        });
+        qc.invalidateQueries({ queryKey: ["msgs", convoId] });
+      }
+      toast.success("Order cancelled — the seller has been notified in chat.");
+      qc.invalidateQueries({ queryKey: ["buyer-orders"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not cancel");
+    } finally {
+      setCancelBusy(null);
+    }
+  }
+
+  // Buyer delete — pending or cancelled orders only, enforced by the
+  // orders_buyer_delete policy (migration j). Paid/delivered history stays.
+  const deleteOrder = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("orders").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Order removed from your list");
+      qc.invalidateQueries({ queryKey: ["buyer-orders"] });
+    },
+    onError: (e) => {
+      const m = e instanceof Error ? e.message : "Could not delete";
+      toast.error(/row-level|policy|42501/i.test(m) ? "One-time setup needed — run apply-pending-2026-11-14j.sql in Supabase." : m);
+    },
+  });
+
   // Track: cards stay compact (one-line stage) until the buyer opens the
   // full timeline for a specific order.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -284,10 +342,24 @@ function OrdersPage() {
     all: all.length,
     active: all.filter((o: any) => isActiveStatus(o.status)).length,
     done: all.filter((o: any) => o.status === "delivered").length,
+    cancelled: all.filter((o: any) => o.status === "cancelled").length,
   };
   const visible = all.filter((o: any) =>
-    bucket === "all" ? true : bucket === "active" ? isActiveStatus(o.status) : o.status === "delivered",
+    bucket === "all"
+      ? true
+      : bucket === "active"
+        ? isActiveStatus(o.status)
+        : bucket === "cancelled"
+          ? o.status === "cancelled"
+          : o.status === "delivered",
   );
+  // The Cancelled tab only earns a chip once something actually got cancelled.
+  const bucketList: ["all" | "active" | "done" | "cancelled", string][] = [
+    ["all", `All · ${counts.all}`],
+    ["active", `In progress · ${counts.active}`],
+    ["done", `Delivered · ${counts.done}`],
+  ];
+  if (counts.cancelled > 0) bucketList.push(["cancelled", `Cancelled · ${counts.cancelled}`]);
 
   return (
     <AppShell>
@@ -296,11 +368,7 @@ function OrdersPage() {
         <p className="mt-1 text-sm text-muted-foreground">Track everything you've bought on BASIC.</p>
         {counts.all > 0 && (
           <div className="mt-3 flex gap-1.5">
-            {([
-              ["all", `All${counts.all ? ` · ${counts.all}` : ""}`],
-              ["active", `In progress${counts.active ? ` · ${counts.active}` : ""}`],
-              ["done", `Delivered${counts.done ? ` · ${counts.done}` : ""}`],
-            ] as const).map(([b, label]) => (
+            {bucketList.map(([b, label]) => (
               <button
                 key={b}
                 onClick={() => setBucket(b)}
@@ -449,29 +517,53 @@ function OrdersPage() {
                 </>
               )}
 
-              {/* Actions — cancel requests travel through the seller's chat:
-                  only they can cancel a placed order, so the buyer asks and
-                  the seller confirms in their Orders dashboard. */}
-              {isActiveStatus(o.status) && o.status !== "shipped" && (
-                <div className="mt-3 flex justify-end">
-                  <button
-                    onClick={() => requestCancellation(o)}
-                    disabled={cancelBusy === o.id || cancelSent.has(o.id)}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-semibold transition-colors ${
-                      cancelSent.has(o.id)
-                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
-                        : "border-border text-muted-foreground hover:border-destructive/50 hover:text-destructive"
-                    } disabled:opacity-60`}
-                  >
-                    {cancelBusy === o.id ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : cancelSent.has(o.id) ? (
-                      <CheckCircle2 className="h-3 w-3" />
-                    ) : null}
-                    {cancelSent.has(o.id) ? "Request sent" : cancelBusy === o.id ? "Sending…" : "Request cancellation"}
-                  </button>
+              {/* Actions — pending orders the buyer cancels outright (the
+                  seller gets the card in chat); paid+ orders ask the seller
+                  via the same thread; cancelled/pending can be deleted. */}
+              {(isActiveStatus(o.status) && o.status !== "shipped") || o.status === "cancelled" ? (
+                <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                  {o.status === "pending" && (
+                    <button
+                      onClick={() => cancelOrder(o)}
+                      disabled={cancelBusy === o.id}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive disabled:opacity-60"
+                    >
+                      {cancelBusy === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                      {cancelBusy === o.id ? "Cancelling…" : "Cancel order"}
+                    </button>
+                  )}
+                  {(o.status === "paid" || o.status === "fulfilled") && (
+                    <button
+                      onClick={() => requestCancellation(o)}
+                      disabled={cancelBusy === o.id || cancelSent.has(o.id)}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-semibold transition-colors ${
+                        cancelSent.has(o.id)
+                          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
+                          : "border-border text-muted-foreground hover:border-destructive/50 hover:text-destructive"
+                      } disabled:opacity-60`}
+                    >
+                      {cancelBusy === o.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : cancelSent.has(o.id) ? (
+                        <CheckCircle2 className="h-3 w-3" />
+                      ) : null}
+                      {cancelSent.has(o.id) ? "Request sent" : cancelBusy === o.id ? "Sending…" : "Request cancellation"}
+                    </button>
+                  )}
+                  {(o.status === "pending" || o.status === "cancelled") && (
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Delete order ${o.order_number}? This can't be undone.`)) deleteOrder.mutate(o.id);
+                      }}
+                      disabled={deleteOrder.isPending && deleteOrder.variables === o.id}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive disabled:opacity-60"
+                    >
+                      {deleteOrder.isPending && deleteOrder.variables === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                      Delete
+                    </button>
+                  )}
                 </div>
-              )}
+              ) : null}
 
               {o.status === "delivered" && (
                 o.buyer_confirmed_at ? (
