@@ -7,6 +7,7 @@ import { ThreadPage } from "../chat.$conversationId";
 export const Route = createFileRoute("/_authenticated/sell/chat/$conversationId")({
   component: () => {
     const { conversationId } = Route.useParams();
-    return <ThreadPage conversationId={conversationId} />;
+    // Key by conversation — see ThreadPageRoute in chat.$conversationId.tsx.
+    return <ThreadPage key={conversationId} conversationId={conversationId} />;
   },
 });

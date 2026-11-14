@@ -24,7 +24,10 @@ export const Route = createFileRoute("/chat/$conversationId")({
 
 function ThreadPageRoute() {
   const { conversationId } = Route.useParams();
-  return <ThreadPage conversationId={conversationId} />;
+  // Key by conversation: switching chats must reset per-thread UI state
+  // (AI recap panel, tools menu, order panel, composer draft) — without
+  // the key, chat A's recap card follows you into chat B.
+  return <ThreadPage key={conversationId} conversationId={conversationId} />;
 }
 
 type Msg = {
