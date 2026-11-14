@@ -1,5 +1,5 @@
-// Product gallery — Jiji-style on desktop: vertical thumbnail rail on the
-// left, main image with prev/next arrows (already wrap). Mobile keeps a
+// Product gallery — desktop: one big image with wrapping prev/next arrows.
+// Mobile keeps a
 // swipeable snap carousel that loops INFINITELY — three copies of the slide
 // list, parked on the middle copy, jumping (unanimated) whenever momentum
 // lands in a clone band. Fullscreen lightbox on tap for both — it reuses the
@@ -132,24 +132,6 @@ export function ProductGallery({ media, title }: { media: Media[]; title: string
   return (
     <section className="relative">
       <div className="flex gap-3">
-        {/* Desktop — vertical thumbnail rail */}
-        {n > 1 && (
-          <div className="no-scrollbar hidden w-16 shrink-0 flex-col gap-2 self-start overflow-y-auto md:flex">
-            {sorted.map((m, i) => (
-              <button
-                key={m.url + i}
-                type="button"
-                onClick={() => setActive(i)}
-                aria-label={`Show image ${i + 1}`}
-                className={`relative aspect-square w-16 shrink-0 overflow-hidden rounded-xl border transition-colors ${
-                  i === active ? "border-gold" : "border-border hover:border-foreground/40"
-                }`}
-              >
-                <img src={m.url} alt="" loading="lazy" className="h-full w-full object-cover" />
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* Mobile — infinite snap carousel */}
         <div className="relative min-w-0 flex-1 md:hidden">
