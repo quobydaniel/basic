@@ -5,7 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone, ChevronRight, ClipboardList, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
-import { draftChatReplies, autoPilotReply, autoPilotReplyRemote, placeChatOrder, summarizeConversation } from "@/lib/ai.functions";
+import { draftChatReplies, autoPilotReply, autoPilotReplyRemote, summarizeConversation } from "@/lib/ai.functions";
 import { formatGHS } from "@/lib/format";
 import { toast } from "sonner";
 
@@ -69,9 +69,6 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   // the WhatsApp-style typing bubble so the buyer knows the seller got it.
   const [aiTyping, setAiTyping] = useState(false);
   const [showOrderPanel, setShowOrderPanel] = useState(false);
-  const [buyQty, setBuyQty] = useState(1);
-  const [buying, setBuying] = useState(false);
-  const placeOrder = useServerFn(placeChatOrder);
   const [orderTotal, setOrderTotal] = useState("");
   const [fulfillment, setFulfillment] = useState("meet_in_person");
   const [paymentTerm, setPaymentTerm] = useState("pay_on_delivery");
@@ -266,27 +263,6 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     }
   }
 
-  // BUYER: one-tap "Place order" — closes the deal from the conversation.
-  async function placeMyOrder() {
-    if (!user || buying) return;
-    setBuying(true);
-    try {
-      const res = (await placeOrder({ data: { conversation_id: conversationId, quantity: buyQty } })) as any;
-      await supabase.from("messages" as any).insert({
-        conversation_id: conversationId,
-        sender_id: user.id,
-        kind: "text",
-        body: `Order placed — ${res.quantity}× ${res.title} (${formatGHS(res.total, { currency: res.currency })}). I'll track it in my Orders.`,
-      });
-      toast.success(`Order #${res.order_number} placed — see it in your Orders`);
-      qc.invalidateQueries({ queryKey: ["msgs", conversationId] });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not place the order");
-    } finally {
-      setBuying(false);
-    }
-  }
-
   // SELLER: create an order from the conversation
   async function createOrder() {
     if (!user || !convo.data) return;
@@ -381,7 +357,18 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     <div className="flex h-full flex-col bg-background text-foreground">
       {/* Header — Jiji-style: who you're talking to, presence, one-tap call/WhatsApp */}
       <header className="z-10 flex items-center gap-2.5 border-b border-border bg-background/95 px-3 py-2.5 backdrop-blur">
-        <button onClick={() => navigate({ to: isSeller ? "/dashboard/chats" : "/chat" })} className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-accent" aria-label="Back">
+        {/* History-aware back: a thread opened from a product page returns
+            there; one opened from the inbox returns to the inbox. Fallback
+            is the role's inbox (mobile has no other way out of the thread). */}
+        <button
+          onClick={() => {
+            const idx = (window.history.state as any)?.idx ?? 0;
+            if (idx > 0) window.history.back();
+            else navigate({ to: isSeller ? "/dashboard/chats" : "/chat" });
+          }}
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-accent"
+          aria-label="Back"
+        >
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted ring-1 ring-gold/30">
@@ -390,7 +377,13 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
         <div className="min-w-0 flex-1">
           <p className="line-clamp-1 font-semibold leading-tight">{convo.data?.store?.name ?? "…"}</p>
           <p className={`text-[11px] leading-tight ${aiTyping ? "font-medium text-gold" : "text-muted-foreground"}`}>
-            {aiTyping ? "typing…" : isSeller ? "Buyer conversation" : "Usually replies within minutes"}
+            {aiTyping
+              ? "typing…"
+              : isSeller
+                ? "Buyer conversation"
+                : store?.plan === "pro" && store?.auto_pilot
+                  ? "AI assistant on duty — replies fast"
+                  : "Usually replies within minutes"}
           </p>
         </div>
         {/* Buyer: direct contact actions from the header (Jiji's ad-chat pattern) */}
@@ -536,8 +529,9 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
         </div>
       </div>
 
-      {/* SELLER: AI recap — what the buyer wants, ready to confirm */}
-      {isSeller && !showRecap && (
+      {/* SELLER: AI recap — what the buyer wants, ready to confirm.
+          Hidden while the thread is empty (nothing to summarize). */}
+      {isSeller && !showRecap && (msgs.data?.length ?? 0) > 0 && (
         <div className="border-t border-border bg-card/60 px-3 py-1.5 backdrop-blur">
           <button
             onClick={loadRecap}
@@ -685,25 +679,6 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
               {chip}
             </button>
           ))}
-        </div>
-      )}
-
-      {/* BUYER: one-tap order closer */}
-      {!isSeller && product && (
-        <div className="flex items-center gap-2 border-t border-border bg-card px-3 py-2">
-          <div className="flex items-center gap-1 rounded-full border border-border bg-background px-1 py-0.5">
-            <button onClick={() => setBuyQty((q) => Math.max(1, q - 1))} className="grid h-7 w-7 place-items-center rounded-full text-muted-foreground hover:bg-accent" aria-label="Fewer">−</button>
-            <span className="w-6 text-center text-sm font-semibold">{buyQty}</span>
-            <button onClick={() => setBuyQty((q) => Math.min(99, q + 1))} className="grid h-7 w-7 place-items-center rounded-full text-muted-foreground hover:bg-accent" aria-label="More">+</button>
-          </div>
-          <button
-            onClick={placeMyOrder}
-            disabled={buying}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-gold py-2 text-sm font-bold text-gold-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-          >
-            <CheckCheck className="h-4 w-4" />
-            {buying ? "Placing…" : `Place order · ${formatGHS((product.base_price ?? 0) * buyQty, { currency: product.currency })}`}
-          </button>
         </div>
       )}
 

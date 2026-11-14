@@ -99,7 +99,6 @@ export async function runAutoPilot(
     .order("created_at", { ascending: false })
     .limit(10);
   const orders: any[] = buyerOrders ?? [];
-  const openOrder = orders.find((o) => o.status === "pending");
   const statusCounts = orders.reduce<Record<string, number>>((acc, o) => {
     acc[o.status] = (acc[o.status] ?? 0) + 1;
     return acc;
@@ -107,8 +106,10 @@ export async function runAutoPilot(
   const orderHistory = orders
     .map((o: any) => `- #${o.order_number} — ${o.status} — ${o.currency ?? "GHS"} ${o.total}${o.payment_term ? ` · ${o.payment_term.replace(/_/g, " ")}` : ""} — ${new Date(o.created_at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`)
     .join("\n") || "(this buyer has no orders with the store yet)";
-  const openOrderLine = openOrder
-    ? `OPEN ORDER (do not create another for this item — see rules): #${openOrder.order_number} — pending seller confirmation — ${openOrder.currency ?? "GHS"} ${openOrder.total}${openOrder.fulfillment_type ? ` · ${openOrder.fulfillment_type.replace(/_/g, " ")}` : ""}${openOrder.payment_term ? ` · ${openOrder.payment_term.replace(/_/g, " ")}` : ""} — placed ${new Date(openOrder.created_at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
+  const pendingOrders = orders.filter((o) => o.status === "pending");
+  const openOrder = pendingOrders[0];
+  const pendingLine = pendingOrders.length
+    ? `OPEN ORDER${pendingOrders.length > 1 ? "S (" + pendingOrders.length + " — duplicates possible, ask the seller to clean up)" : ""} (do not create another for this item — see rules):\n${pendingOrders.slice(0, 3).map((o) => `- #${o.order_number} — pending seller confirmation — ${o.currency ?? "GHS"} ${o.total}${o.fulfillment_type ? ` · ${o.fulfillment_type.replace(/_/g, " ")}` : ""}${o.payment_term ? ` · ${o.payment_term.replace(/_/g, " ")}` : ""} — placed ${new Date(o.created_at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`).join("\n")}`
     : "(no order awaiting confirmation right now)";
 
   // Past chats with this same buyer — "remember previous chats" without a
@@ -127,7 +128,7 @@ export async function runAutoPilot(
     `- First contact: ${new Date(firstContact).toLocaleDateString()} (${daysKnown} day${daysKnown === 1 ? "" : "s"} ago)${returning ? " — RETURNING buyer; greet them like a familiar face" : " — first-time buyer"}`,
     pastConvos && pastConvos.length > 1 ? `- ${pastConvos.length} conversations with this store to date` : "",
     orders.length ? `- ${orders.length} order${orders.length === 1 ? "" : "s"} so far (${Object.entries(statusCounts).map(([k, v]) => `${v} ${k}`).join(", ")})` : "- No orders yet",
-    openOrderLine,
+    pendingLine,
     orderHistory !== "(this buyer has no orders with the store yet)" ? `Order history (newest first):\n${orderHistory}` : "",
   ]
     .filter(Boolean)
@@ -145,6 +146,7 @@ ${catalog}${listingLine}
 Store location: ${[st.area, st.city || st.region].filter(Boolean).join(", ") || "Ghana"}. Payment options: ${JSON.stringify(st.payment_terms ?? [])}.
 ${memoryBlock}
 CONTINUITY RULES: you have the whole chat (up to 40 recent messages) plus the BUYER MEMORY above. Never re-introduce yourself or re-greet a returning buyer like a stranger. Never re-ask a question the buyer already answered — check the history first. If you promised something earlier (a price, a callback), stay consistent with it or explicitly correct it ("Quick correction — earlier I said X, the right figure is Y"). When the buyer asks "what did the seller say", answer from the open order / memory, never with a canned deflection.
+CHANGE REQUESTS (be honest about what you can do): you CANNOT edit an order that's already placed — only the seller can change quantity, price, delivery or payment when they confirm it. When the buyer asks to change something on a pending order, say plainly: "Noted — I've flagged the change (1 copy instead of 2) for the seller to update when they confirm your order #X." Never say "I've changed it", never imply it's done, and don't ask them to order again.
 HOW TO SELL LIKE A HUMAN: warm, brief (1-3 sentences), Ghana-marketplace tone. Answer questions from the catalog. For products marked "price negotiable", agree on a number like a real shopkeeper: welcome the buyer's offer, counter once if it's far below list, and once the buyer settles on a figure, that IS the deal price — pass it in ORDER_READY (price=<their number>). Every order you book lands as PENDING for the seller to confirm, so the seller always has the final say on price — you never need to refuse an agreed price yourself.
 ORDER TRACKING: when the buyer asks about their order ("where is it", "when will it arrive", "did the seller confirm"), answer from the BUYER MEMORY status lines. Statuses move pending → paid → fulfilled → shipped → delivered. If the order is still pending, say it's with the seller for confirmation — and answer their actual question.
 DUPLICATE GUARD — CRITICAL: if BUYER MEMORY shows an OPEN ORDER (pending), you must NOT emit ORDER_READY for the same item again — no matter how the buyer phrases confirmation ("ok", "yes", "momo", "kasoa"). Instead reply about the existing order: confirm its details, answer their question, and tell them the seller will confirm it shortly. Only emit ORDER_READY when the buyer is ordering a DIFFERENT item (or the previous order is no longer pending — check the statuses).
