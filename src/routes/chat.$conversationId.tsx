@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone, ChevronRight, ClipboardList, Loader2, MoreVertical } from "lucide-react";
+import { ArrowLeft, ArrowDown, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone, ChevronRight, ClipboardList, Loader2, MoreVertical, RotateCcw, Package, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
 import { autoPilotReply, autoPilotReplyRemote, summarizeConversation } from "@/lib/ai.functions";
@@ -75,6 +75,17 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   const [fulfillment, setFulfillment] = useState("meet_in_person");
   const [paymentTerm, setPaymentTerm] = useState("pay_on_delivery");
   const [orderBusy, setOrderBusy] = useState(false);
+  // Optimistic sends: bubble appears instantly, flips to a retry state if
+  // the insert fails — no more messages lost to a dead connection.
+  const [outbox, setOutbox] = useState<{ id: string; body: string; failed?: boolean }[]>([]);
+  // Staged image attachment: preview + remove BEFORE it uploads (send button
+  // commits it). null = nothing staged.
+  const [attach, setAttach] = useState<{ file: File; url: string } | null>(null);
+  // Full-screen image viewer (tap an image message to open).
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  // Reader is at (or near) the bottom — gates auto-scroll and the
+  // jump-to-latest pill so reading history is never yanked away.
+  const [atBottom, setAtBottom] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
 
   const convo = useQuery({
@@ -82,7 +93,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("conversations" as any)
-        .select("id, buyer_id, seller_id, store_id, product_id, store:stores(id, name, logo_url, slug, plan, auto_pilot, whatsapp_number), product:products(id, slug, title, base_price, currency, product_media(url))")
+        .select("id, buyer_id, seller_id, store_id, product_id, order_id, store:stores(id, name, logo_url, slug, plan, auto_pilot, whatsapp_number), product:products(id, slug, title, base_price, currency, product_media(url))")
         .eq("id", conversationId)
         .single();
       if (error) throw error;
@@ -162,10 +173,22 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
       .then(() => {});
   }, [user, convo.data, conversationId, msgs.data?.length]);
 
-  // Auto-scroll
+  // Auto-scroll — only when the reader is already at the bottom; otherwise
+  // the jump-to-latest pill takes over (scrolling someone away from history
+  // they're reading is hostile).
   useEffect(() => {
-    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [msgs.data?.length, aiTyping]);
+    if (listRef.current && atBottom) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [msgs.data?.length, aiTyping, outbox.length, atBottom]);
+
+  // Esc closes the image viewer.
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightbox(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox]);
 
   const store: any = convo.data?.store ?? null;
   const autoPilotOn = !!(user && isSeller && store?.plan === "pro" && store?.auto_pilot);
@@ -236,13 +259,41 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   async function send(body: string) {
     if (!body.trim() || !user) return;
     setText("");
+    const tmpId = crypto.randomUUID();
+    setOutbox((o) => [...o, { id: tmpId, body: body.trim() }]);
     const { error } = await supabase
       .from("messages" as any)
       .insert({ conversation_id: conversationId, sender_id: user.id, kind: "text", body: body.trim() });
     if (error) {
+      // Keep the bubble on screen, marked failed — retry or discard there.
+      setOutbox((o) => o.map((m) => (m.id === tmpId ? { ...m, failed: true } : m)));
       toast.error(error.message);
-      setText(body); // restore the typed message so it isn't lost
-    } else qc.invalidateQueries({ queryKey: ["msgs", conversationId] });
+    } else {
+      setOutbox((o) => o.filter((m) => m.id !== tmpId));
+      qc.invalidateQueries({ queryKey: ["msgs", conversationId] });
+    }
+  }
+
+  function retrySend(m: { id: string; body: string }) {
+    setOutbox((o) => o.filter((x) => x.id !== m.id));
+    void send(m.body);
+  }
+
+  function discardFailed(id: string) {
+    setOutbox((o) => o.filter((x) => x.id !== id));
+  }
+
+  // Composer commit: a staged image goes first, then any typed text — the
+  // two arrive as separate messages, WhatsApp-style.
+  async function commitComposer() {
+    const staged = attach;
+    const body = text;
+    if (staged) {
+      URL.revokeObjectURL(staged.url);
+      setAttach(null);
+      await sendAttachment(staged.file);
+    }
+    if (body.trim()) void send(body);
   }
 
   // SELLER: AI recap of the whole conversation — what was agreed, what's
@@ -306,7 +357,8 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     }
   }
 
-  async function uploadImage(file: File) {
+  // Commit the staged attachment: upload → signed URL → image message.
+  async function sendAttachment(file: File) {
     if (!user) return;
     const path = `${conversationId}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
     const { error: upErr } = await supabase.storage.from("chat-attachments").upload(path, file);
@@ -383,15 +435,31 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
             )}
           </div>
         ) : (
-          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted ring-1 ring-gold/30">
-            {convo.data?.store?.logo_url && <img src={convo.data.store.logo_url} alt="" className="h-full w-full object-cover" />}
+          <div className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-[var(--gold)]/15 font-display text-sm font-bold text-[var(--gold)] ring-1 ring-gold/30">
+            {convo.data?.store?.logo_url ? (
+              <img src={convo.data.store.logo_url} alt="" className="h-full w-full object-cover" />
+            ) : (
+              ((convo.data?.store?.name ?? "S").trim().charAt(0).toUpperCase() || "S")
+            )}
           </div>
         )}
         <div className="min-w-0 flex-1">
           <p className="line-clamp-1 font-semibold leading-tight">
             {isSeller ? buyerProfile.data?.full_name || "Buyer" : convo.data?.store?.name ?? "…"}
           </p>
-          <p className={`text-[11px] leading-tight ${aiTyping ? "font-medium text-gold" : "text-muted-foreground"}`}>
+          <p className={`flex items-center gap-1.5 text-[11px] leading-tight ${aiTyping ? "font-medium text-gold" : "text-muted-foreground"}`}>
+            {/* Presence dot: gold pulse while the AI composes, steady gold for
+                an AI-assisted store, green for a human-backed store. */}
+            <span
+              aria-hidden
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                aiTyping
+                  ? "animate-pulse bg-gold"
+                  : !isSeller && store?.plan === "pro" && store?.auto_pilot
+                    ? "bg-gold"
+                    : "bg-emerald-500"
+              }`}
+            />
             {aiTyping
               ? isSeller ? "AI is replying…" : "typing…"
               : isSeller
@@ -440,38 +508,39 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
             <span className="hidden sm:inline">Auto-pilot</span> {store?.auto_pilot ? "ON" : "OFF"}
           </button>
         )}
-        {/* Seller tools — AI recap + create order, one ⋮ away. The composer
-            row carries nothing but chat. */}
-        {isSeller && (
-          <div className="relative shrink-0">
-            <button
-              onClick={() => setMenuOpen((v) => !v)}
-              className="grid h-9 w-9 place-items-center rounded-full hover:bg-accent"
-              aria-label="Chat actions"
-              aria-expanded={menuOpen}
-            >
-              <MoreVertical className="h-5 w-5" />
-            </button>
-            {menuOpen && (
-              <>
-                <button
-                  className="fixed inset-0 z-30 cursor-default"
-                  onClick={() => setMenuOpen(false)}
-                  aria-label="Close menu"
-                  tabIndex={-1}
-                />
-                <div className="absolute right-0 top-10 z-40 w-56 overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
-                  {(msgs.data?.length ?? 0) > 0 && (
-                    <button
-                      onClick={() => {
-                        setMenuOpen(false);
-                        loadRecap();
-                      }}
-                      className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm hover:bg-accent"
-                    >
-                      <ClipboardList className="h-4 w-4 shrink-0 text-[var(--gold)]" /> AI recap of this chat
-                    </button>
-                  )}
+        {/* Chat tools — ⋮ for BOTH roles. Sellers get AI recap + create order;
+            buyers get the order/listing shortcuts the header can't fit. The
+            composer row carries nothing but chat. */}
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="grid h-9 w-9 place-items-center rounded-full hover:bg-accent"
+            aria-label="Chat actions"
+            aria-expanded={menuOpen}
+          >
+            <MoreVertical className="h-5 w-5" />
+          </button>
+          {menuOpen && (
+            <>
+              <button
+                className="fixed inset-0 z-30 cursor-default"
+                onClick={() => setMenuOpen(false)}
+                aria-label="Close menu"
+                tabIndex={-1}
+              />
+              <div className="absolute right-0 top-10 z-40 w-56 overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
+                {isSeller && (msgs.data?.length ?? 0) > 0 && (
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      loadRecap();
+                    }}
+                    className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm hover:bg-accent"
+                  >
+                    <ClipboardList className="h-4 w-4 shrink-0 text-[var(--gold)]" /> AI recap of this chat
+                  </button>
+                )}
+                {isSeller && (
                   <button
                     onClick={() => {
                       setMenuOpen(false);
@@ -482,11 +551,30 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
                   >
                     <Tag className="h-4 w-4 shrink-0 text-[var(--gold)]" /> Create order
                   </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+                )}
+                {!isSeller && convo.data?.order_id && (
+                  <Link
+                    to="/orders"
+                    onClick={() => setMenuOpen(false)}
+                    className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm hover:bg-accent"
+                  >
+                    <Package className="h-4 w-4 shrink-0 text-[var(--gold)]" /> View your order
+                  </Link>
+                )}
+                {!isSeller && product && (
+                  <Link
+                    to="/s/$storeSlug/p/$productSlug"
+                    params={{ storeSlug: convo.data.store.slug, productSlug: product.slug }}
+                    onClick={() => setMenuOpen(false)}
+                    className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm hover:bg-accent"
+                  >
+                    <ExternalLink className="h-4 w-4 shrink-0 text-[var(--gold)]" /> Open the listing
+                  </Link>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </header>
 
       {/* Product context chip — tap anywhere to open the listing */}
@@ -508,12 +596,20 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
       )}
 
       {/* Messages */}
-      <div ref={listRef} className="flex-1 overflow-y-auto bg-[color-mix(in_oklab,var(--background)_92%,var(--primary)_8%)] px-3 py-4">
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={listRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
+          }}
+          className="h-full overflow-y-auto bg-[color-mix(in_oklab,var(--background)_92%,var(--primary)_8%)] px-3 py-4"
+        >
         <div className="mx-auto flex max-w-2xl flex-col gap-1.5">
           {msgs.isLoading && <p className="py-8 text-center text-sm text-muted-foreground">Loading messages…</p>}
           {!msgs.isLoading && (msgs.data ?? []).length === 0 && (
             <div className="mx-auto mt-10 max-w-xs rounded-2xl bg-card/90 p-5 text-center shadow-sm">
-              <p className="font-display text-lg">Say hello 👋</p>
+              <p className="font-display text-lg">Say hello</p>
               <p className="mt-1 text-sm text-muted-foreground">
                 Ask about availability, price, or delivery — sellers reply fast here.
               </p>
@@ -536,29 +632,43 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
                 <div key={m.id} className="mx-auto my-1 max-w-sm rounded-2xl border border-[var(--gold)]/40 bg-[var(--gold)]/10 px-4 py-2.5 text-center">
                   <p className="text-xs font-medium">{m.body}</p>
                   <p className="mt-0.5 text-[10px] text-muted-foreground">{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
-                  {isSeller && (m as any).metadata?.order_id && (
-                    <Link to="/dashboard/orders" className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[var(--gold)] px-3 py-1 text-[11px] font-bold text-[var(--gold-foreground)] hover:opacity-90">
-                      Confirm / update order →
+                  {(m as any).metadata?.order_id && (
+                    <Link
+                      to={isSeller ? "/dashboard/orders" : "/orders"}
+                      className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[var(--gold)] px-3 py-1 text-[11px] font-bold text-[var(--gold-foreground)] hover:opacity-90"
+                    >
+                      {isSeller ? "Confirm / update order" : "View your order"}
                     </Link>
                   )}
                 </div>
               );
             }
-            // Consecutive messages from the same sender stack tighter, with
-            // the tail only on the last bubble of the run (WhatsApp pattern).
+            // Consecutive messages from the same sender stack tighter (WhatsApp
+            // pattern): the tail corner sits only on the last bubble of a run,
+            // middle bubbles square BOTH corners on their side.
             const nextMsg = items[idx + 1];
             const lastOfRun = !(nextMsg && nextMsg.type === "msg" && nextMsg.m.sender_id === m.sender_id && nextMsg.m.kind !== "system_order" && nextMsg.m.kind !== "system_delivery");
+            const tail = mine
+              ? lastOfRun ? "rounded-br-sm" : "rounded-br-sm rounded-tr-sm"
+              : lastOfRun ? "rounded-bl-sm" : "rounded-bl-sm rounded-tl-sm";
             return (
               <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                 <div
-                  className={`max-w-[80%] px-3.5 py-2 text-[15px] leading-snug shadow-sm ${
+                  className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-[15px] leading-snug shadow-sm ${tail} ${
                     mine
-                      ? `bg-[var(--gold)] text-[var(--gold-foreground)] ${lastOfRun ? "rounded-2xl rounded-br-md" : "rounded-2xl rounded-br-md rounded-tr-md"}`
-                      : `border border-border/60 bg-card text-foreground ${lastOfRun ? "rounded-2xl rounded-bl-md" : "rounded-2xl rounded-bl-md rounded-tl-md"}`
+                      ? "bg-[var(--gold)] text-[var(--gold-foreground)]"
+                      : "border border-border/60 bg-card text-foreground"
                   }`}
                 >
                   {m.kind === "image" && Array.isArray(m.attachments) && m.attachments[0]?.url && (
-                    <img src={m.attachments[0].url} alt="" className="mb-1 max-h-64 rounded-xl" />
+                    <button
+                      type="button"
+                      onClick={() => setLightbox(m.attachments[0].url)}
+                      className="mb-1 block max-w-full cursor-zoom-in"
+                      aria-label="View image full size"
+                    >
+                      <img src={m.attachments[0].url} alt="" className="max-h-64 rounded-xl" />
+                    </button>
                   )}
                   {m.body && <p className="whitespace-pre-wrap">{m.body}</p>}
                   <span className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${mine ? "text-[var(--gold-foreground)]/70" : "text-muted-foreground"}`}>
@@ -588,7 +698,57 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
               </div>
             </div>
           )}
+          {/* Optimistic sends — gold while in flight; a failed send stays as
+              a card with Retry / Discard instead of vanishing. */}
+          {outbox.map((o) => (
+            <div key={o.id} className="flex justify-end">
+              <div
+                className={`max-w-[80%] rounded-2xl rounded-br-sm px-3.5 py-2 text-[15px] leading-snug shadow-sm ${
+                  o.failed ? "border border-destructive/60 bg-card text-foreground" : "bg-[var(--gold)] text-[var(--gold-foreground)]"
+                }`}
+              >
+                <p className="whitespace-pre-wrap">{o.body}</p>
+                {o.failed ? (
+                  <span className="mt-0.5 flex items-center justify-end gap-2 text-[10px]">
+                    <span className="font-semibold uppercase tracking-[0.08em] text-destructive">Not sent</span>
+                    <button
+                      onClick={() => retrySend(o)}
+                      className="inline-flex items-center gap-0.5 rounded-full bg-destructive/15 px-2 py-0.5 font-semibold text-destructive transition-colors hover:bg-destructive/25"
+                    >
+                      <RotateCcw className="h-2.5 w-2.5" /> Retry
+                    </button>
+                    <button
+                      onClick={() => discardFailed(o.id)}
+                      aria-label="Discard message"
+                      className="grid h-4 w-4 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ) : (
+                  <span className="mt-0.5 flex items-center justify-end text-[10px] text-[var(--gold-foreground)]/70">Sending…</span>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
+        </div>
+        {/* Jump to latest — appears only when the reader scrolled up, so new
+            traffic never drags them away from history. */}
+        {!atBottom && (
+          <button
+            onClick={() => {
+              const el = listRef.current;
+              if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+              setAtBottom(true);
+            }}
+            className="absolute bottom-4 right-4 z-10 grid h-10 w-10 place-items-center rounded-full border border-gold/40 bg-card text-gold shadow-lift transition-colors hover:bg-accent"
+            aria-label="Jump to latest messages"
+            title="Jump to latest"
+          >
+            <ArrowDown className="h-[18px] w-[18px]" strokeWidth={1.8} />
+          </button>
+        )}
       </div>
 
       {/* SELLER: AI recap panel — opened from the header ⋮ menu. */}
@@ -657,9 +817,9 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
                 className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm"
               />
               <select value={fulfillment} onChange={(e) => setFulfillment(e.target.value)} className="rounded-xl border border-input bg-background px-3 py-2.5 text-sm" aria-label="Fulfillment">
-                <option value="meet_in_person">🤝 Meet in person</option>
-                <option value="visit_shop">🏪 Visit shop</option>
-                <option value="delivery">🛵 Delivery</option>
+                <option value="meet_in_person">Meet in person</option>
+                <option value="visit_shop">Visit shop</option>
+                <option value="delivery">Delivery</option>
               </select>
               <select value={paymentTerm} onChange={(e) => setPaymentTerm(e.target.value)} className="col-span-2 rounded-xl border border-input bg-background px-3 py-2.5 text-sm" aria-label="Payment terms">
                 <option value="pay_on_delivery">Pay on delivery</option>
@@ -694,36 +854,93 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
         </div>
       )}
 
-      {/* Composer */}
-      <div className="border-t border-border bg-background px-3 pb-2 pt-2" style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
-        <div className="mx-auto flex max-w-2xl items-end gap-1.5">
-          <label className="grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-full text-muted-foreground hover:bg-accent" aria-label="Attach image">
-            <ImageIcon className="h-5 w-5" />
-            <input type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && uploadImage(e.target.files[0])} />
-          </label>
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send(text);
-              }
-            }}
-            rows={1}
-            placeholder="Message…"
-            className="max-h-32 min-h-[44px] flex-1 resize-none rounded-3xl border border-input bg-card px-4 py-2.5 text-[15px] outline-none focus:border-ring"
-          />
-          <button
-            onClick={() => send(text)}
-            disabled={!text.trim()}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--gold)] text-[var(--gold-foreground)] transition hover:brightness-110 disabled:opacity-40"
-            aria-label="Send"
-          >
-            <Send className="h-4.5 w-4.5" />
-          </button>
+      {/* Composer — WhatsApp anatomy: attach sits inside the field, the send
+          button rides the right edge. Picking an image stages a preview above
+          the field (removable); the send button commits it. */}
+      <div className="border-t border-border bg-background px-3 pt-2" style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
+        <div className="mx-auto max-w-2xl">
+          {attach && (
+            <div className="mb-2 flex items-center gap-3 rounded-2xl border border-border bg-card p-2">
+              <img src={attach.url} alt="" className="h-14 w-14 shrink-0 rounded-lg object-cover" />
+              <div className="min-w-0 flex-1 text-xs leading-tight">
+                <p className="line-clamp-1 font-medium">{attach.file.name}</p>
+                <p className="mt-0.5 text-muted-foreground">
+                  {Math.max(1, Math.round(attach.file.size / 1024))} KB · sends with your next message
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  URL.revokeObjectURL(attach.url);
+                  setAttach(null);
+                }}
+                aria-label="Remove attachment"
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+          <div className="flex items-end gap-1 rounded-[26px] border border-input bg-card py-1.5 pl-2 pr-1.5 transition-colors focus-within:border-ring">
+            <label
+              className="grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-label="Attach image"
+              title="Attach an image"
+            >
+              <ImageIcon className="h-5 w-5" strokeWidth={1.7} />
+              <input
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) setAttach({ file: f, url: URL.createObjectURL(f) });
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  commitComposer();
+                }
+              }}
+              rows={1}
+              placeholder="Message…"
+              className="max-h-32 min-h-[40px] flex-1 resize-none bg-transparent py-2 text-[15px] outline-none placeholder:text-muted-foreground"
+            />
+            <button
+              onClick={commitComposer}
+              disabled={!text.trim() && !attach}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--gold)] text-[var(--gold-foreground)] transition hover:brightness-110 disabled:opacity-40"
+              aria-label="Send"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Full-screen image viewer — tap any image message to inspect it. */}
+      {lightbox && (
+        <div
+          role="dialog"
+          aria-label="Image viewer"
+          onClick={() => setLightbox(null)}
+          className="fixed inset-0 z-50 grid place-items-center bg-black/90 p-6"
+        >
+          <img src={lightbox} alt="" className="max-h-[82vh] max-w-full rounded-xl object-contain shadow-lift" />
+          <button
+            onClick={() => setLightbox(null)}
+            aria-label="Close image viewer"
+            className="absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

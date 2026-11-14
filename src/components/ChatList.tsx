@@ -229,9 +229,9 @@ export function ChatList({
           const mine = last?.sender_id === user?.id;
           const preview =
             last == null
-              ? c.product?.title ?? "Say hello 👋"
+              ? c.product?.title ?? "Say hello"
               : last.kind === "image"
-                ? (mine ? "You: " : "") + "📷 Photo"
+                ? (mine ? "You: " : "") + "Photo"
                 : last.kind.startsWith("system")
                   ? (last.body ?? "")
                   : `${mine ? "You: " : ""}${last.body ?? ""}`;
@@ -248,8 +248,12 @@ export function ChatList({
               className="flex w-full items-center gap-3 rounded-2xl p-3 text-left transition-colors hover:bg-accent/60 data-[active=true]:bg-accent/70"
             >
               <div className={`h-12 w-12 shrink-0 overflow-hidden rounded-full bg-muted ring-2 ${unread > 0 || c.id === activeId ? "ring-[var(--gold)]/70" : "ring-border"}`}>
-                {(scope === "selling" ? c.buyer?.avatar_url : c.store?.logo_url) && (
+                {(scope === "selling" ? c.buyer?.avatar_url : c.store?.logo_url) ? (
                   <img src={(scope === "selling" ? c.buyer!.avatar_url : c.store!.logo_url)!} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <span className="grid h-full w-full place-items-center font-display text-base text-gold">
+                    {(scope === "selling" ? c.buyer?.full_name || "B" : c.store?.name || "S").trim().charAt(0).toUpperCase()}
+                  </span>
                 )}
               </div>
               <div className="min-w-0 flex-1 border-b border-border/40 pb-3 pt-0.5">
