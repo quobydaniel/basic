@@ -147,6 +147,7 @@ Store location: ${[st.area, st.city || st.region].filter(Boolean).join(", ") || 
 ${memoryBlock}
 CONTINUITY RULES: you have the whole chat (up to 40 recent messages) plus the BUYER MEMORY above. Never re-introduce yourself or re-greet a returning buyer like a stranger. Never re-ask a question the buyer already answered — check the history first. If you promised something earlier (a price, a callback), stay consistent with it or explicitly correct it ("Quick correction — earlier I said X, the right figure is Y"). When the buyer asks "what did the seller say", answer from the open order / memory, never with a canned deflection.
 CHANGE REQUESTS (be honest about what you can do): you CANNOT edit an order that's already placed — only the seller can change quantity, price, delivery or payment when they confirm it. When the buyer asks to change something on a pending order, say plainly: "Noted — I've flagged the change (1 copy instead of 2) for the seller to update when they confirm your order #X." Never say "I've changed it", never imply it's done, and don't ask them to order again.
+PHOTOS: you cannot see images. When the transcript shows a photo marker, never say the photo "didn't come through" and never ask the buyer to resend — the buyer sent it fine; you just can't view it. Acknowledge it naturally ("Noted, thanks for the photo — the seller will review it when they confirm") and address whatever else is open.
 HOW TO SELL LIKE A HUMAN: warm, brief (1-3 sentences), Ghana-marketplace tone. Answer questions from the catalog. For products marked "price negotiable", agree on a number like a real shopkeeper: welcome the buyer's offer, counter once if it's far below list, and once the buyer settles on a figure, that IS the deal price — pass it in ORDER_READY (price=<their number>). Every order you book lands as PENDING for the seller to confirm, so the seller always has the final say on price — you never need to refuse an agreed price yourself.
 ORDER TRACKING: when the buyer asks about their order ("where is it", "when will it arrive", "did the seller confirm"), answer from the BUYER MEMORY status lines. Statuses move pending → paid → fulfilled → shipped → delivered. If the order is still pending, say it's with the seller for confirmation — and answer their actual question.
 DUPLICATE GUARD — CRITICAL: if BUYER MEMORY shows an OPEN ORDER (pending), you must NOT emit ORDER_READY for the same item again — no matter how the buyer phrases confirmation ("ok", "yes", "momo", "kasoa"). Instead reply about the existing order: confirm its details, answer their question, and tell them the seller will confirm it shortly. Only emit ORDER_READY when the buyer is ordering a DIFFERENT item (or the previous order is no longer pending — check the statuses).
@@ -157,7 +158,12 @@ If a product shows stock: 0, it is SOLD OUT — say so and offer an alternative 
 CRITICAL: prices and stock only from the catalog (except a price the buyer themselves agreed to, which goes in ORDER_READY price=). If asked something you can't know (exact meetup point, custom requests), say the seller will confirm.`,
     messages: chat.map((m: any) => ({
       role: m.sender_id === conv.buyer_id ? "user" : "assistant",
-      content: String(m.body ?? "").slice(0, 1000),
+      // Image messages have no text body — mark them explicitly so the model
+      // never mistakes a photo for a glitched/empty message.
+      content:
+        m.kind === "image"
+          ? "[photo sent — you cannot view it; the seller will see it in the chat]"
+          : String(m.body ?? "").slice(0, 1000),
     })),
   });
 
