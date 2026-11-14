@@ -8,8 +8,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { CirclePlay, Eye, Heart, ImagePlus, Loader2, Trash2 } from "lucide-react";
+import { CirclePlay, Eye, Heart, ImagePlus, Loader2, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { shareStory } from "@/components/Stories";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
 
@@ -314,15 +315,25 @@ function StoriesPage() {
                   <span className="flex items-center gap-1"><Heart className="h-3.5 w-3.5" /> {social.data?.rCount[s.id] ?? 0} reactions</span>
                 </div>
               </div>
-              <button
-                onClick={() => { if (window.confirm("Delete this story?")) remove.mutate(s); }}
-                disabled={remove.isPending}
-                aria-label="Delete story"
-                title="Delete story"
-                className="grid h-8 w-8 shrink-0 place-items-center self-start rounded-full border border-border text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              <div className="flex shrink-0 flex-col gap-1.5 self-start">
+                <button
+                  onClick={() => shareStory(store.slug, store.name)}
+                  aria-label="Share story to WhatsApp status"
+                  title="Share to WhatsApp status"
+                  className="grid h-8 w-8 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:border-[var(--gold)]/60 hover:text-foreground"
+                >
+                  <Share2 className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => { if (window.confirm("Delete this story?")) remove.mutate(s); }}
+                  disabled={remove.isPending}
+                  aria-label="Delete story"
+                  title="Delete story"
+                  className="grid h-8 w-8 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </article>
           ))}
         </div>

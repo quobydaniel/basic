@@ -64,13 +64,20 @@ function StorefrontPage() {
   const [sort, setSort] = useState<SortKey>("relevance");
   const [following, setFollowing] = useState<boolean | null>(null);
   const [topMode, setTopMode] = useState<"sold" | "rating">("sold");
+  // ?story=1 — shared story links land here and the viewer starts playing
+  // on arrival (checked post-mount so server HTML matches first render).
+  const [autoPlay, setAutoPlay] = useState(false);
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("story");
+    if (v === "1" || v === "true") setAutoPlay(true);
+  }, []);
 
   const store = useQuery({
     queryKey: ["store", storeSlug],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("stores")
-        .select("id, slug, name, tagline, description, logo_url, banner_url, country, currency, status, plan, kyc_verified, area, city, region, created_at, payment_terms, theme")
+        .select("id, slug, name, tagline, description, logo_url, banner_url, country, currency, status, plan, kyc_verified, area, city, region, created_at, payment_terms, theme, ai_character, ai_greeting")
         .eq("slug", storeSlug)
         .maybeSingle();
       if (error) throw error;
@@ -297,7 +304,7 @@ function StorefrontPage() {
           until the store has a live story (and quietly nothing before the
           stories migration runs). */}
       <div className="mt-4">
-        <StoryTray storeId={s.id} storeSlug={s.slug} storeName={s.name} logoUrl={s.logo_url} accent={accent} />
+        <StoryTray storeId={s.id} storeSlug={s.slug} storeName={s.name} logoUrl={s.logo_url} accent={accent} autoOpen={autoPlay} />
       </div>
 
       {/* Tabs */}

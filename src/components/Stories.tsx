@@ -9,7 +9,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { X } from "lucide-react";
+import { Share2, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
@@ -38,6 +38,20 @@ function timeLeft(expiresAt: string): string {
   return `${Math.max(1, Math.floor(ms / 60_000))}m left`;
 }
 
+/* The canonical share target — ?story=1 lands on the storefront and the
+   viewer starts playing on arrival. navigator.share surfaces WhatsApp
+   (incl. posting to your own status) on mobile; desktop falls back to
+   wa.me / WhatsApp Web. */
+export function shareStory(storeSlug: string, storeName: string) {
+  const url = `${window.location.origin}/s/${storeSlug}?story=1`;
+  const text = `Check out ${storeName}'s story on BASIC 🔥 ${url}`;
+  if (typeof navigator !== "undefined" && navigator.share) {
+    navigator.share({ title: storeName, text, url }).catch(() => {}); // dismissed — fine
+    return;
+  }
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+}
+
 /* ---------------------------------------------------------------- */
 /* Tray — the store's story ring on the storefront                  */
 /* ---------------------------------------------------------------- */
@@ -48,15 +62,17 @@ export function StoryTray({
   storeName,
   logoUrl,
   accent,
+  autoOpen = false,
 }: {
   storeId: string;
   storeSlug: string;
   storeName: string;
   logoUrl: string | null;
   accent: string;
+  autoOpen?: boolean;
 }) {
   const { user } = useSession();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen);
 
   const stories = useQuery({
     queryKey: ["store-stories", storeId],
@@ -261,13 +277,23 @@ function StoryViewer({
           <p className="truncate text-sm font-semibold">{storeName}</p>
           <p className="text-[10px] text-white/70">{timeLeft(cur.expires_at)}</p>
         </div>
-        <button
-          onClick={onClose}
-          aria-label="Close story"
-          className="grid h-9 w-9 place-items-center rounded-full bg-white/10 transition-colors hover:bg-white/20"
-        >
-          <X className="h-5 w-5" />
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            onClick={() => shareStory(storeSlug, storeName)}
+            aria-label="Share story"
+            title="Share to WhatsApp status"
+            className="grid h-9 w-9 place-items-center rounded-full bg-white/10 transition-colors hover:bg-white/20"
+          >
+            <Share2 className="h-4.5 w-4.5" />
+          </button>
+          <button
+            onClick={onClose}
+            aria-label="Close story"
+            className="grid h-9 w-9 place-items-center rounded-full bg-white/10 transition-colors hover:bg-white/20"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
       </div>
 
       {/* media + tap zones */}

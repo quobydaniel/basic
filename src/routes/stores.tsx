@@ -98,6 +98,24 @@ function StoresPage() {
     },
   });
 
+  // Houses with a live story (24h WhatsApp-style status) — golden profile
+  // ring + a deep link that starts the story on arrival. Pre-migration this
+  // 404s once and everything just renders ringless.
+  const storyStores = useQuery({
+    queryKey: ["stores-directory-stories"],
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("stories")
+        .select("store_id")
+        .gt("expires_at", new Date().toISOString());
+      if (error) throw error;
+      const set: Record<string, number> = {};
+      for (const r of data ?? []) set[(r as any).store_id] = (set[(r as any).store_id] ?? 0) + 1;
+      return set;
+    },
+  });
+
   const rows = stores.data ?? [];
   const sort = search.sort ?? "new";
 
@@ -233,11 +251,14 @@ function StoresPage() {
 
         {filtered.map((s, i) => {
           const rating = ratings.data?.[s.id];
+          const hasStory = (storyStores.data?.[s.id] ?? 0) > 0;
           return (
             <Reveal key={s.id} delay={(i % 3) * 80}>
               <Link
                 to="/s/$storeSlug"
                 params={{ storeSlug: s.slug }}
+                search={hasStory ? ({ story: "1" } as any) : undefined}
+                title={hasStory ? `${s.name} has a live story — tap to watch` : undefined}
                 className="group block overflow-hidden rounded-2xl border border-border bg-card transition-all duration-500 hover:border-gold/50 hover:shadow-[0_24px_60px_-24px_oklch(0.80_0.11_85/0.35)]"
               >
                 {/* Banner */}
@@ -254,15 +275,25 @@ function StoresPage() {
                 </div>
 
                 <div className="relative px-5 pb-5">
-                  {/* Logo rides the banner edge */}
-                  {s.logo_url && (
-                    <img
-                      src={s.logo_url}
-                      alt=""
-                      loading="lazy"
-                      className="absolute -top-7 left-5 h-14 w-14 rounded-2xl border-2 border-card object-cover shadow-[var(--shadow-soft)]"
-                    />
-                  )}
+                  {/* Logo rides the banner edge — live-story houses wear the
+                      WhatsApp-style golden ring (monogram tile when logoless). */}
+                  <span
+                    className={`absolute -top-7 left-5 grid h-14 w-14 place-items-center rounded-2xl shadow-[var(--shadow-soft)] ${hasStory ? "p-[2.5px]" : ""}`}
+                    style={hasStory ? { background: "conic-gradient(from 210deg, var(--gold), transparent 55%, var(--gold))" } : undefined}
+                  >
+                    {s.logo_url ? (
+                      <img
+                        src={s.logo_url}
+                        alt=""
+                        loading="lazy"
+                        className={`h-full w-full rounded-2xl border-2 border-card object-cover ${hasStory ? "rounded-[13px]" : ""}`}
+                      />
+                    ) : hasStory ? (
+                      <span className="grid h-full w-full place-items-center rounded-[13px] border-2 border-card bg-card font-display text-lg text-gold">
+                        {s.name.trim().charAt(0).toUpperCase()}
+                      </span>
+                    ) : null}
+                  </span>
                   <div className="pt-9">
                     <p className="flex items-center gap-2 font-display text-xl leading-tight">
                       <span className="truncate transition-colors group-hover:text-gold">{s.name}</span>
