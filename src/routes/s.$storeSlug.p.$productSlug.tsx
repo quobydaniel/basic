@@ -523,7 +523,7 @@ function ProductPage() {
               Visit storefront <Store className="h-3.5 w-3.5" />
             </Link>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-3 pb-6 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-3 pb-6 sm:grid-cols-3 md:grid-cols-4">
             {moreFromStore.data!.slice(0, 8).map((p: any) => (
               <ProductCardTile key={p.id} p={p} />
             ))}
@@ -534,7 +534,7 @@ function ProductPage() {
       {(related.data ?? []).length > 0 && (
         <div className="border-t border-border px-4 pb-8 pt-6 md:px-8">
           <h2 className="font-display text-xl">Similar products</h2>
-          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
             {related.data!.slice(0, 8).map((p: any) => (
               <ProductCardTile key={p.id} p={p} />
             ))}
