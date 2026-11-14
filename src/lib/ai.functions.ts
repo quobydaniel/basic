@@ -786,6 +786,108 @@ export const autoPilotReplyRemote = createServerFn({ method: "POST" })
     });
   });
 
+// ---------------- AI chat recap (seller confirmation tool) ----------------
+// The seller opens a chat after being away and gets a one-glance, structured
+// summary of what the buyer wants — item, quantity, agreed price, delivery,
+// payment, open questions, and the recommended next action — so confirming
+// (or creating the order) is one tap. Seller-only, grounded in the real
+// thread + order data; never invents terms that aren't in the chat.
+export const summarizeConversation = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((raw: unknown) => z.object({ conversation_id: z.string().uuid() }).parse(raw))
+  .handler(async ({ data, context }) => {
+    const key = process.env.NVIDIA_API_KEY;
+    if (!key) throw new Error("Missing NVIDIA_API_KEY");
+
+    const { data: convo } = await context.supabase
+      .from("conversations")
+      .select("id, seller_id, buyer_id, store_id, product_id, created_at, store:stores(id, name), product:products(title, base_price, currency)")
+      .eq("id", data.conversation_id)
+      .maybeSingle();
+    const conv: any = convo;
+    if (!conv) throw new Error("Conversation not found");
+    if (conv.seller_id !== context.userId) throw new Error("Only the seller can recap this chat");
+
+    const { data: msgs } = await context.supabase
+      .from("messages")
+      .select("sender_id, body, kind, created_at")
+      .eq("conversation_id", data.conversation_id)
+      .order("created_at", { ascending: false })
+      .limit(60);
+    const chat = (msgs ?? []).reverse();
+    if (chat.length === 0) throw new Error("Nothing to summarize yet");
+
+    const { data: orders } = await context.supabase
+      .from("orders")
+      .select("order_number, status, total, currency, fulfillment_type, payment_term, created_at")
+      .eq("store_id", conv.store_id)
+      .eq("buyer_id", conv.buyer_id)
+      .order("created_at", { ascending: false })
+      .limit(10);
+    const orderLines = (orders ?? [])
+      .map((o: any) => `- #${o.order_number} — ${o.status} — ${o.currency ?? "GHS"} ${o.total}${o.payment_term ? ` · ${o.payment_term.replace(/_/g, " ")}` : ""} — ${new Date(o.created_at).toLocaleDateString()}`)
+      .join("\n") || "(no orders yet from this buyer)";
+
+    const history = chat
+      .map((m: any) => {
+        const who = m.sender_id === conv.seller_id ? "SELLER/AI" : m.sender_id === conv.buyer_id ? "BUYER" : "SYSTEM";
+        return `${who}: ${m.body ?? "(attachment)"}`;
+      })
+      .join("\n");
+
+    const gateway = createNvidiaNimProvider(key);
+    const model = gateway(await resolveModel(context.supabase, "assistantChat"));
+    const result = await generateText({
+      model,
+      instructions: `You summarize a marketplace buyer chat for the SELLER who was away. Grounded in the transcript and order data only — never invent terms nobody said. Return ONLY one JSON object:
+{
+  "summary": string (2-3 sentences: who the buyer is, what they want, where things stand),
+  "item": string ("-" if none discussed),
+  "qty": number (0 if unknown),
+  "price": number (the unit price actually AGREED in chat, 0 if not agreed — note when it differs from the list price),
+  "delivery": string ("-" if not set),
+  "payment": string ("-" if not set),
+  "status": string ("awaiting seller reply" | "awaiting buyer reply" | "order pending confirmation" | "resolved"),
+  "open_questions": string[] (up to 3 things the seller still needs to decide or answer),
+  "next_action": string (the single most useful next move for the seller, e.g. "Confirm order #X at the agreed GH₵50" or "Reply to the delivery question")
+}`,
+      messages: [
+        {
+          role: "user",
+          content: `Product in this chat: ${conv.product?.title ?? "(none)"} — list price ${conv.product?.currency ?? "GHS"} ${conv.product?.base_price ?? "?"}
+Orders from this buyer (newest first):
+${orderLines}
+
+Transcript (oldest first):
+${history}
+
+Write the recap JSON.`,
+        },
+      ],
+    });
+
+    const raw = result.text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error("AI response was not valid JSON");
+      parsed = JSON.parse(m[0]);
+    }
+    return {
+      summary: String(parsed.summary ?? ""),
+      item: String(parsed.item ?? "-"),
+      qty: Number(parsed.qty ?? 0) || 0,
+      price: Number(parsed.price ?? 0) || 0,
+      delivery: String(parsed.delivery ?? "-"),
+      payment: String(parsed.payment ?? "-"),
+      status: String(parsed.status ?? ""),
+      open_questions: Array.isArray(parsed.open_questions) ? parsed.open_questions.slice(0, 3).map(String) : [],
+      next_action: String(parsed.next_action ?? ""),
+    };
+  });
+
 
 // ---------------- Buyer places an order from the chat ----------------
 export const placeChatOrder = createServerFn({ method: "POST" })

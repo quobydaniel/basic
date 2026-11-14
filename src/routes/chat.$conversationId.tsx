@@ -2,10 +2,10 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone, ChevronRight } from "lucide-react";
+import { ArrowLeft, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone, ChevronRight, ClipboardList, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
-import { draftChatReplies, autoPilotReply, autoPilotReplyRemote, placeChatOrder } from "@/lib/ai.functions";
+import { draftChatReplies, autoPilotReply, autoPilotReplyRemote, placeChatOrder, summarizeConversation } from "@/lib/ai.functions";
 import { formatGHS } from "@/lib/format";
 import { toast } from "sonner";
 
@@ -55,10 +55,16 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const draft = useServerFn(draftChatReplies);
+  const summarize = useServerFn(summarizeConversation);
 
   const [text, setText] = useState("");
   const [drafts, setDrafts] = useState<string[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
+  // Seller's AI recap: a one-glance summary of what the buyer wants, ready
+  // to confirm — with a one-tap "create the order" handoff.
+  const [recap, setRecap] = useState<any>(null);
+  const [recapBusy, setRecapBusy] = useState(false);
+  const [showRecap, setShowRecap] = useState(false);
   // True while the store's AI (auto-pilot) is composing its reply — renders
   // the WhatsApp-style typing bubble so the buyer knows the seller got it.
   const [aiTyping, setAiTyping] = useState(false);
@@ -238,6 +244,25 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
       toast.error("AI unavailable");
     } finally {
       setAiBusy(false);
+    }
+  }
+
+  // SELLER: AI recap of the whole conversation — what was agreed, what's
+  // open, and the recommended next move. One tap to create the order with
+  // the agreed details prefilled.
+  async function loadRecap() {
+    if (recapBusy) return;
+    setRecapBusy(true);
+    setShowRecap(true);
+    try {
+      const r = await summarize({ data: { conversation_id: conversationId } });
+      setRecap(r);
+      if (r.qty > 0 && r.price > 0 && !orderTotal) setOrderTotal(String(r.qty * r.price));
+    } catch (e) {
+      setShowRecap(false);
+      toast.error(e instanceof Error ? e.message : "AI recap unavailable");
+    } finally {
+      setRecapBusy(false);
     }
   }
 
@@ -484,6 +509,13 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
                   )}
                   {m.body && <p className="whitespace-pre-wrap">{m.body}</p>}
                   <span className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${mine ? "text-[var(--gold-foreground)]/70" : "text-muted-foreground"}`}>
+                    {/* Seller visibility: mark the messages the AI wrote on
+                        the seller's behalf (metadata.ai set by the engine). */}
+                    {isSeller && mine && (m as any).metadata?.ai && (
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-black/10 px-1.5 py-px font-semibold" title="Sent by your AI auto-pilot">
+                        <Sparkles className="h-2.5 w-2.5" /> AI
+                      </span>
+                    )}
                     {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     {mine && <CheckCheck className="h-3 w-3" aria-label="Delivered" />}
                   </span>
@@ -503,6 +535,79 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
           )}
         </div>
       </div>
+
+      {/* SELLER: AI recap — what the buyer wants, ready to confirm */}
+      {isSeller && !showRecap && (
+        <div className="border-t border-border bg-card/60 px-3 py-1.5 backdrop-blur">
+          <button
+            onClick={loadRecap}
+            disabled={recapBusy}
+            className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-semibold text-[var(--gold)] hover:bg-accent disabled:opacity-50"
+          >
+            <ClipboardList className="h-3.5 w-3.5" />
+            {recapBusy ? "Summarizing…" : "AI recap of this chat"}
+          </button>
+        </div>
+      )}
+      {isSeller && showRecap && (
+        <div className="border-t border-border bg-card px-3 py-3 backdrop-blur">
+          <div className="flex items-center justify-between">
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <ClipboardList className="h-3.5 w-3.5 text-[var(--gold)]" /> AI recap
+            </p>
+            <button onClick={() => setShowRecap(false)} aria-label="Close recap" className="grid h-6 w-6 place-items-center rounded-full hover:bg-accent">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {recapBusy && !recap && (
+            <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading the conversation…
+            </p>
+          )}
+          {recap && (
+            <div className="mt-2 space-y-2.5">
+              <p className="text-sm leading-relaxed">{recap.summary}</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-xl border border-border/60 bg-background/60 p-3 text-xs sm:grid-cols-3">
+                <p><span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Item</span>{recap.item || "-"}</p>
+                <p><span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Qty</span>{recap.qty > 0 ? recap.qty : "-"}</p>
+                <p><span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Agreed price</span>{recap.price > 0 ? formatGHS(recap.price, { currency: product?.currency ?? "GHS" }) : "-"}</p>
+                <p><span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Delivery</span>{recap.delivery || "-"}</p>
+                <p><span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Payment</span>{recap.payment || "-"}</p>
+                <p><span className="block text-[10px] uppercase tracking-wide text-muted-foreground">Status</span>{recap.status || "-"}</p>
+              </div>
+              {recap.open_questions?.length > 0 && (
+                <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
+                  {recap.open_questions.map((q: string, i: number) => <li key={i}>{q}</li>)}
+                </ul>
+              )}
+              {recap.next_action && (
+                <p className="text-xs text-muted-foreground"><span className="font-semibold text-foreground">Next:</span> {recap.next_action}</p>
+              )}
+              <div className="flex flex-wrap gap-2 pt-0.5">
+                <button
+                  onClick={() => {
+                    if (recap.price > 0) setOrderTotal(String(recap.qty > 1 ? recap.qty * recap.price : recap.price));
+                    setShowOrderPanel(true);
+                    setShowRecap(false);
+                  }}
+                  className="rounded-full bg-[var(--gold)] px-4 py-1.5 text-xs font-bold text-[var(--gold-foreground)] hover:opacity-90"
+                >
+                  Create order with these details
+                </button>
+                <button
+                  onClick={() => {
+                    setShowRecap(false);
+                    void suggestReplies();
+                  }}
+                  className="rounded-full border border-border px-4 py-1.5 text-xs font-semibold text-muted-foreground hover:border-gold/50 hover:text-gold"
+                >
+                  Draft a reply instead
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Draft chips — seller-side AI only. Buyers have no AI in their chat. */}
       {isSeller && drafts.length > 0 && (
