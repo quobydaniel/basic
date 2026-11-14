@@ -500,6 +500,7 @@ The user asked a question about using BASIC. Answer from the platform knowledge 
       else if (data.page_context === "orders") where = "their Orders page";
       else if (data.page_context === "favorites") where = "their Favorites page (saved items)";
       else if (data.page_context === "account") where = "their Account page";
+      else if (data.page_context === "stores") where = "the Storefronts directory page — every seller on BASIC is listed there, so 'these stores'/'this page' means the directory";
       const path = data.page_path ? ` (current URL: ${data.page_path})` : "";
       pageLine = `WHERE THE USER IS: they are currently on ${where}${path}. References like "here", "this page", or "this" mean that page and what's on it — tailor your answer and suggestions to it instead of asking where they are. Merely being on a page is NOT a reason to emit a GO line.`;
     }

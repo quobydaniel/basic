@@ -23,7 +23,7 @@ type AssistantProduct = {
   image: string | null;
 };
 
-type AssistantContext = "home" | "discover" | "product" | "orders" | "favorites" | "account";
+type AssistantContext = "home" | "discover" | "product" | "orders" | "favorites" | "account" | "stores";
 
 // Lightweight markdown for assistant replies: **bold**, "- " bullets,
 // blank-line paragraphs. Keeps replies scannable without a markdown dep.
@@ -95,6 +95,11 @@ const CONTEXT_META: Record<AssistantContext, { teaser: string; sub: string; chip
     teaser: "Need a hand?",
     sub: "Find products · stores · navigate the app",
     chips: ["What's trending in Ghana?", "Take me to my orders", "How does BASIC work?"],
+  },
+  stores: {
+    teaser: "Looking for a seller? Ask me",
+    sub: "I know every storefront in this directory",
+    chips: ["Which store sells phones?", "Compare Quoby Tech and Kente & Co", "Stores outside Accra"],
   },
 };
 
@@ -281,7 +286,7 @@ export function FloatingBuyerAssistant({ productId, context = "home" }: { produc
           style={{ marginBottom: "env(safe-area-inset-bottom)" }}
         >
           <div className="relative flex max-w-[min(260px,calc(100vw-6rem))] items-center gap-1 rounded-2xl rounded-br-sm border border-border bg-card px-3.5 py-2.5 shadow-[var(--shadow-soft)]">
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-[var(--gold)]" />
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-[var(--gild)]" />
             <span className="text-xs font-medium leading-snug">{meta.teaser}</span>
             <button
               aria-label="Dismiss"
@@ -301,7 +306,7 @@ export function FloatingBuyerAssistant({ productId, context = "home" }: { produc
           setOpen((v) => !v);
           setShowTeaser(false);
         }}
-        className="group fixed bottom-20 right-4 z-50 grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-primary via-primary to-[var(--gold)] text-primary-foreground shadow-[0_12px_30px_-8px_color-mix(in_oklab,var(--primary)_55%,transparent)] transition hover:scale-[1.05] active:scale-95 md:bottom-6 md:right-6"
+        className="group fixed bottom-20 right-4 z-50 grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-primary via-primary to-[var(--gild)] text-primary-foreground shadow-[0_12px_30px_-8px_color-mix(in_oklab,var(--primary)_55%,transparent)] transition hover:scale-[1.05] active:scale-95 md:bottom-6 md:right-6"
         style={{ marginBottom: "env(safe-area-inset-bottom)" }}
       >
         <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-full">
@@ -325,11 +330,11 @@ export function FloatingBuyerAssistant({ productId, context = "home" }: { produc
           aria-label="BASIC assistant"
         >
           <div className="flex items-center gap-3 border-b border-border/70 bg-gradient-to-r from-primary/15 via-primary/5 to-transparent px-4 py-3">
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-primary to-[var(--gold)] text-primary-foreground">
+            <div className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-primary to-[var(--gild)] text-primary-foreground">
               <Sparkles className="h-4 w-4" />
             </div>
             <div className="min-w-0">
-              <p className="font-display text-base leading-tight">BASIC assistant</p>
+              <p className="font-display text-sm uppercase tracking-[0.18em] leading-tight">BASIC ASSISTANT</p>
               <p className="text-[11px] text-muted-foreground">{meta.sub}</p>
             </div>
             {messages.length > 0 && (
@@ -350,11 +355,13 @@ export function FloatingBuyerAssistant({ productId, context = "home" }: { produc
                     ? "Hi 👋 I've read this listing, its reviews, and the seller details. Ask me anything — or I can draft an offer for you."
                     : context === "discover"
                       ? "Hi 👋 Tell me what you're looking for — I'll dig through every store on BASIC."
-                      : "Hi 👋 I can find products, suggest stores, answer questions, and take you anywhere in the app."}
+                      : context === "stores"
+                        ? "Hi 👋 This directory is every seller on BASIC. Ask me which one has what you need — or what to ask them."
+                        : "Hi 👋 I can find products, suggest stores, answer questions, and take you anywhere in the app."}
                 </p>
                 <div className="grid gap-2">
                   {personalChips.length > 0 && (
-                    <p className="flex items-center gap-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-gold">
+                    <p className="flex items-center gap-1.5 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-gild">
                       <Sparkles className="h-3 w-3" /> For you
                     </p>
                   )}
@@ -399,7 +406,7 @@ export function FloatingBuyerAssistant({ productId, context = "home" }: { produc
                         <div className="min-w-0 flex-1">
                           <p className="line-clamp-1 text-sm font-medium">
                             {st.name}
-                            {st.pro && <span className="ml-1.5 rounded-full bg-[var(--gold)] px-1.5 py-0.5 text-[9px] font-bold uppercase text-[var(--gold-foreground)]">Pro</span>}
+                            {st.pro && <span className="ml-1.5 rounded-full bg-[var(--gild)] px-1.5 py-0.5 text-[9px] font-bold uppercase text-[var(--gild-foreground)]">Pro</span>}
                           </p>
                           <p className="line-clamp-1 text-xs text-muted-foreground">
                             {st.tagline || "Storefront"}{st.area ? ` · ${st.area}` : st.city ? ` · ${st.city}` : ""}

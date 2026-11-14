@@ -1,15 +1,14 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { Home, Search, MessageCircle, Package, User, Heart, Bike, ShieldCheck, ArrowUpRight, Store, ChevronRight, Sparkles } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import { Home, Search, MessageCircle, Package, User, Heart, Bike, ShieldCheck, ArrowUpRight, Store, ChevronRight } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { FloatingBuyerAssistant } from "@/components/FloatingBuyerAssistant";
 import { LocationPicker } from "@/components/LocationPicker";
-import { NotificationBell } from "@/components/NotificationBell";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { supabase } from "@/integrations/supabase/client";
 import { useCategoryStats, rollupCount } from "@/lib/category-stats";
 import { formatGHS } from "@/lib/format";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 // Obsidian — buyer tabs. Same IA as the original shell; presentation is
@@ -41,11 +40,12 @@ export function AppShell({
   const appSurface = isChat || isProductDetail;
   const showAssistant =
     !pathname.startsWith("/chat") && !pathname.startsWith("/account");
-  const context: "home" | "discover" | "product" | "orders" | "favorites" =
+  const context: "home" | "discover" | "product" | "orders" | "favorites" | "stores" =
     pathname.startsWith("/discover") ? "discover"
     : pathname.startsWith("/s/") ? "product"
     : pathname.startsWith("/orders") ? "orders"
     : pathname.startsWith("/favorites") ? "favorites"
+    : pathname.startsWith("/stores") ? "stores"
     : "home";
 
   return (
@@ -65,7 +65,9 @@ function TopBar() {
     <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-lg supports-[backdrop-filter]:bg-background/60">
       <div className="mx-auto max-w-2xl px-4 md:max-w-6xl md:px-8">
         {/* Upper masthead — brand centered, utility split left/right */}
-        <div className="flex items-center justify-between py-4">
+        {/* Tighter app-bar rhythm on mobile (56px, Temu-grade); desktop keeps
+            its two-row masthead breathing room. */}
+        <div className="flex items-center justify-between py-2.5 md:py-4">
           <div className="flex flex-1 items-center gap-1">
             {/* ── PARKED — nav redesign in progress. Uncomment to re-place. ──
             <LocationPicker />
@@ -77,8 +79,8 @@ function TopBar() {
               <Heart className="h-[18px] w-[18px]" strokeWidth={1.6} />
             </Link>
             ── end parked ── */}
-            <ThemeToggle />
-            <NotificationBell />
+            {/* Role switching lives on the Account page (Buyer / Seller /
+                Affiliate) — the masthead stays buyer-calm. */}
           </div>
 
           <Link to="/" className="group flex flex-col items-center">
@@ -89,14 +91,8 @@ function TopBar() {
           </Link>
 
           <div className="flex flex-1 items-center justify-end gap-1">
-            <AssistantTopButton />
-            <Link
-              to="/discover"
-              className="grid h-9 w-9 place-items-center rounded-full text-foreground/80 hover:bg-accent md:hidden"
-              aria-label="Discover"
-            >
-              <Search className="h-[18px] w-[18px]" strokeWidth={1.6} />
-            </Link>
+            {/* The floating assistant orb covers AI on every page; search
+                lives in the home hero. The masthead stays buyer-calm. */}
             <AccountLink />
           </div>
         </div>
@@ -108,10 +104,10 @@ function TopBar() {
           <DesktopLink to="/chat" label="Chat" />
           <DesktopLink to="/orders" label="Orders" />
           {/* Stores → /stores: the buyer-facing directory — browse, search
-              and follow every seller storefront on BASIC. Sellers reach their
-              own store via the store icon in the masthead cluster. */}
+              and follow every seller storefront on BASIC. Sellers reach
+              their own store via Account → Switch user → Seller. */}
           <DesktopLink to="/stores" label="Stores" />
-          <Link to="/pricing" className="gold-rule pb-1.5 text-[11px] font-semibold uppercase tracking-[0.3em] text-gold transition-opacity hover:opacity-80">
+          <Link to="/pricing" className="gold-rule pb-1.5 text-[11px] font-semibold uppercase tracking-[0.3em] text-gild transition-opacity hover:opacity-80">
             ✦ Premium
           </Link>
         </nav>
@@ -148,25 +144,53 @@ function AccountLink() {
   );
 }
 
-/* AssistantTopButton — always-visible AI entry in the masthead. The floating
-   orb lives bottom-right; this puts the assistant one tap from every page
-   top (it hides on chat/account where the floating assistant is disabled). */
-function AssistantTopButton() {
+/* Tab-bar badge: total unread across the buyer's conversations. One small
+   query plus a realtime nudge whenever any message lands (RLS delivers only
+   rows this user may see), and a refetch on every route change so leaving a
+   thread updates the pill immediately. */
+let tabFeedChannel: RealtimeChannel | null = null;
+let tabFeedUserId: string | null = null;
+
+function useUnreadChats(userId?: string) {
+  const qc = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  if (pathname.startsWith("/chat") || pathname.startsWith("/account")) return null;
-  return (
-    <button
-      onClick={() => window.dispatchEvent(new CustomEvent("basic:assistant:open"))}
-      aria-label="Open BASIC assistant"
-      className="relative grid h-9 w-9 place-items-center rounded-full text-foreground/80 transition-colors hover:bg-accent hover:text-gold"
-    >
-      <Sparkles className="h-[18px] w-[18px]" strokeWidth={1.6} />
-    </button>
-  );
+  const unread = useQuery({
+    queryKey: ["unread-chats", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("conversations")
+        .select("unread_buyer")
+        .eq("buyer_id", userId!);
+      if (error) throw error;
+      return (data as { unread_buyer: number }[]).reduce((s, c) => s + c.unread_buyer, 0);
+    },
+  });
+
+  useEffect(() => {
+    qc.invalidateQueries({ queryKey: ["unread-chats"] });
+  }, [pathname, qc]);
+
+  useEffect(() => {
+    if (!userId) return;
+    if (tabFeedUserId === userId) return;
+    if (tabFeedChannel) supabase.removeChannel(tabFeedChannel);
+    tabFeedChannel = supabase
+      .channel(`tabbar-feed:${userId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, () => {
+        qc.invalidateQueries({ queryKey: ["unread-chats"] });
+      })
+      .subscribe();
+    tabFeedUserId = userId;
+  }, [userId, qc]);
+
+  return unread.data ?? 0;
 }
 
 function BottomTabBar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { user } = useSession();
+  const unread = useUnreadChats(user?.id);
   return (
     <nav
       aria-label="Primary"
@@ -183,7 +207,19 @@ function BottomTabBar() {
                 className="relative flex flex-col items-center gap-1 py-3 text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground data-[active=true]:text-foreground"
                 data-active={active}
               >
-                <Icon className="h-[18px] w-[18px]" strokeWidth={active ? 2.1 : 1.6} />
+                {/* Active tab = the lemon working accent on the icon; the
+                    label stays ivory. The gilded top pin completes the state. */}
+                <span className="relative">
+                  <Icon
+                    className={`h-[18px] w-[18px] transition-colors ${active ? "text-[var(--gold)]" : ""}`}
+                    strokeWidth={active ? 2.1 : 1.6}
+                  />
+                  {to === "/chat" && unread > 0 && (
+                    <span className="absolute -right-2 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--gold)] px-1 text-[9px] font-bold text-[var(--gold-foreground)] ring-2 ring-background">
+                      {unread > 9 ? "9+" : unread}
+                    </span>
+                  )}
+                </span>
                 {label}
                 {active && (
                   <span className="absolute top-0 h-[2px] w-8 rounded-full bg-gradient-to-r from-transparent via-gold to-transparent" />
@@ -354,11 +390,11 @@ function MegaCollections() {
           {images[c.id] ? (
             <img src={images[c.id]} alt="" loading="lazy" className="h-full w-full object-cover" />
           ) : (
-            <span className="grid h-full w-full place-items-center bg-gold/10 font-display text-2xl text-gold">{c.name.charAt(0)}</span>
+            <span className="grid h-full w-full place-items-center bg-gild/10 font-display text-2xl text-gild">{c.name.charAt(0)}</span>
           )}
         </div>
         {hot && (
-          <span className="absolute -right-1 -top-1 rounded-full bg-[var(--gold)] px-1.5 py-px text-[8px] font-bold uppercase tracking-[0.08em] text-[var(--gold-foreground)] shadow-md">
+          <span className="absolute -right-1 -top-1 rounded-full bg-[var(--gild)] px-1.5 py-px text-[8px] font-bold uppercase tracking-[0.08em] text-[var(--gild-foreground)] shadow-md">
             HOT
           </span>
         )}
@@ -432,7 +468,7 @@ function MegaCollections() {
                 {prodsIn(active.id).length > 0 && (
                   <>
                     <p className={`flex items-center gap-2.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground ${subsOf(active.id).length > 0 ? "mt-5" : "mb-3"}`}>
-                      <span className="h-px w-5 bg-gold/60" /> Top picks in {active.name}
+                      <span className="h-px w-5 bg-gild/60" /> Top picks in {active.name}
                     </p>
                     <div className="grid grid-cols-4 gap-3">
                       {prodsIn(active.id).map(productCard)}
@@ -446,7 +482,7 @@ function MegaCollections() {
             ) : (
               <>
                 <p className="mb-4 flex items-center gap-2.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-                  <span className="h-px w-5 bg-gold/60" /> Featured · what Ghana is buying
+                  <span className="h-px w-5 bg-gild/60" /> Featured · what Ghana is buying
                 </p>
                 <div className="grid grid-cols-5 gap-x-4 gap-y-4">
                   {featured.map((c) => tile(c, hotIn(featured).has(c.id)))}
@@ -454,7 +490,7 @@ function MegaCollections() {
                 {(topProducts.data ?? []).length > 0 && (
                   <>
                     <p className="mb-3 mt-5 flex items-center gap-2.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-                      <span className="h-px w-5 bg-gold/60" /> Trending now
+                      <span className="h-px w-5 bg-gild/60" /> Trending now
                     </p>
                     <div className="grid grid-cols-4 gap-3">
                       {(topProducts.data ?? []).slice(0, 4).map(productCard)}
