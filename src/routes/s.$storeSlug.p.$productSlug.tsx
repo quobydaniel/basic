@@ -27,6 +27,7 @@ function ProductPage() {
   const [reviewBusy, setReviewBusy] = useState(false);
   const [brief, setBrief] = useState<string | null>(null);
   const [briefBusy, setBriefBusy] = useState(false);
+  const [briefLeft, setBriefLeft] = useState<number | null>(null);
   const briefFn = useServerFn(productBrief);
   const navigate = useNavigate();
   const router = useRouter();
@@ -127,6 +128,17 @@ function ProductPage() {
       return r;
     },
   });
+
+  // Buyer plan — the AI insight card meters by it (free: 5/day, Premium: unlimited).
+  const myPlan = useQuery({
+    queryKey: ["my-plan", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data } = await (supabase as any).from("profiles").select("plan").eq("id", user!.id).maybeSingle();
+      return ((data as any)?.plan ?? "shopper") as string;
+    },
+  });
+  const insightPremium = myPlan.data === "premium" || myPlan.data === "premium-yearly";
 
   const hasPurchased = useQuery({
     queryKey: ["has-purchased", productSlug],
@@ -267,6 +279,71 @@ function ProductPage() {
               {stockBadge}
             </span>
           )}
+
+          {/* Trust + AI insight — pinned right under the image (Quoby's ask),
+              mobile and desktop alike. */}
+          <div className="px-4 pt-4 md:px-0 md:pt-4">
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-3">
+                <MapPin className="h-4 w-4 text-[var(--gold)]" />
+                <span>Meet, visit shop, or get it delivered</span>
+              </div>
+              <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-3">
+                <ShieldCheck className="h-4 w-4 text-[var(--gold)]" />
+                <span>Pay on delivery, before, or escrow</span>
+              </div>
+            </div>
+
+            {/* AI product insight — grounded brief that opens with the
+                seller's own description. Free buyer plan: 5 a day; Premium:
+                unlimited. */}
+            <div className="mt-3 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 text-sm font-medium">
+                  <Sparkles className="h-4 w-4 text-primary" /> AI product insight
+                </p>
+                {brief && (
+                  <button onClick={() => setBrief(null)} className="text-xs text-muted-foreground hover:text-foreground">
+                    Hide
+                  </button>
+                )}
+              </div>
+              {!brief ? (
+                <>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {insightPremium
+                      ? "A grounded summary of this listing — unlimited with Premium."
+                      : "A grounded summary of this listing, drawn from the seller's own description — 5 free a day."}
+                  </p>
+                  <button
+                    onClick={async () => {
+                      setBriefBusy(true);
+                      try {
+                        const res = (await briefFn({ data: { product_id: product.id } })) as any;
+                        setBrief(res.brief);
+                        setBriefLeft(typeof res.remaining === "number" ? res.remaining : null);
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "AI unavailable");
+                      } finally {
+                        setBriefBusy(false);
+                      }
+                    }}
+                    disabled={briefBusy}
+                    className="mt-2 w-full rounded-full bg-primary py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                  >
+                    {briefBusy ? "Reading the listing…" : "✨ Get AI insight"}
+                  </button>
+                  {!insightPremium && typeof briefLeft === "number" && (
+                    <p className="mt-1.5 text-center text-[11px] text-muted-foreground">
+                      {briefLeft} of 5 free insights left today — Premium is unlimited
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{brief}</p>
+              )}
+            </div>
+          </div>
         </section>
 
         <section className="px-4 pt-4 md:px-0 md:pt-0">
@@ -386,55 +463,6 @@ function ProductPage() {
                 </a>
               )}
             </div>
-          </div>
-
-          <div className="mt-6 grid grid-cols-2 gap-2 text-xs">
-            <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-3">
-              <MapPin className="h-4 w-4 text-[var(--gold)]" />
-              <span>Meet, visit shop, or get it delivered</span>
-            </div>
-            <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-3">
-              <ShieldCheck className="h-4 w-4 text-[var(--gold)]" />
-              <span>Pay on delivery, before, or escrow</span>
-            </div>
-          </div>
-
-          {/* AI product insight */}
-          <div className="mt-6 rounded-2xl border border-primary/30 bg-primary/5 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <p className="flex items-center gap-1.5 text-sm font-medium">
-                <Sparkles className="h-4 w-4 text-primary" /> AI product insight
-              </p>
-              {brief && (
-                <button onClick={() => setBrief(null)} className="text-xs text-muted-foreground hover:text-foreground">
-                  Hide
-                </button>
-              )}
-            </div>
-            {!brief ? (
-              <>
-                <p className="mt-1 text-xs text-muted-foreground">A grounded summary of this listing, its reviews, and the seller — no invented facts.</p>
-                <button
-                  onClick={async () => {
-                    setBriefBusy(true);
-                    try {
-                      const res = (await briefFn({ data: { product_id: product.id } })) as any;
-                      setBrief(res.brief);
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "AI unavailable");
-                    } finally {
-                      setBriefBusy(false);
-                    }
-                  }}
-                  disabled={briefBusy}
-                  className="mt-2 w-full rounded-full bg-primary py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
-                >
-                  {briefBusy ? "Reading the listing…" : "✨ Get AI insight"}
-                </button>
-              </>
-            ) : (
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{brief}</p>
-            )}
           </div>
 
           {/* Reviews */}
