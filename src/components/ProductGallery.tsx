@@ -1,7 +1,9 @@
 // Product gallery — Jiji-style on desktop: vertical thumbnail rail on the
-// left, main image with prev/next arrows. Mobile keeps the swipeable snap
-// carousel with dots. Fullscreen lightbox on tap for both.
-import { useRef, useState } from "react";
+// left, main image with prev/next arrows (already wrap). Mobile keeps a
+// swipeable snap carousel that loops INFINITELY — three copies of the slide
+// list, parked on the middle copy, jumping (unanimated) whenever momentum
+// lands in a clone band. Fullscreen lightbox on tap for both.
+import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 type Media = { url: string; alt?: string | null; position?: number };
@@ -13,18 +15,45 @@ export function ProductGallery({ media, title }: { media: Media[]; title: string
   const [zoom, setZoom] = useState(false);
 
   const n = sorted.length;
+  const loop = n > 1; // nothing to loop with a single image
   const step = (dir: 1 | -1) => setActive((a) => (n ? (a + dir + n) % n : 0));
+
+  // Park the track on the middle copy on mount (and whenever the slide
+  // count changes) — the copies to the left/right are the loop seams.
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el || !loop) return;
+    const park = () => {
+      if (el.clientWidth > 0) el.scrollLeft = n * el.clientWidth;
+      else requestAnimationFrame(park);
+    };
+    park();
+  }, [n, loop]);
 
   function onMobileScroll() {
     const el = trackRef.current;
-    if (!el || el.clientWidth === 0) return;
-    const i = Math.round(el.scrollLeft / el.clientWidth);
+    if (!el || !loop || el.clientWidth === 0) return;
+    const raw = Math.round(el.scrollLeft / el.clientWidth);
+    // Momentum landed in a clone band — teleport (unanimated) back into the
+    // middle band. snap-mandatory keeps the landing point on a slide edge.
+    if (raw < n) {
+      el.scrollLeft += n * el.clientWidth;
+      return;
+    }
+    if (raw >= 2 * n) {
+      el.scrollLeft -= n * el.clientWidth;
+      return;
+    }
+    const i = raw - n;
     if (i !== active) setActive(i);
   }
 
   if (n === 0) {
     return <div className="aspect-square w-full overflow-hidden bg-muted md:rounded-3xl" />;
   }
+
+  // The mobile slide list: one copy, or three for the infinite loop.
+  const mobileSlides = loop ? [...sorted, ...sorted, ...sorted] : sorted;
 
   return (
     <section className="relative">
@@ -48,24 +77,32 @@ export function ProductGallery({ media, title }: { media: Media[]; title: string
           </div>
         )}
 
-        {/* Mobile — snap carousel */}
+        {/* Mobile — infinite snap carousel */}
         <div className="relative min-w-0 flex-1 md:hidden">
           <div
             ref={trackRef}
             onScroll={onMobileScroll}
-            className="no-scrollbar aspect-square w-full snap-x snap-mandatory overflow-x-auto bg-muted"
+            className="no-scrollbar flex aspect-square w-full snap-x snap-mandatory overflow-x-auto bg-muted"
           >
-            {sorted.map((m, i) => (
-              <button
-                key={m.url + i}
-                type="button"
-                onClick={() => setZoom(true)}
-                aria-label={`View image ${i + 1} fullscreen`}
-                className="block h-full w-full shrink-0 snap-center"
-              >
-                <img src={m.url} alt={m.alt ?? title} loading={i === 0 ? "eager" : "lazy"} className="pointer-events-none h-full w-full object-cover" />
-              </button>
-            ))}
+            {mobileSlides.map((m, idx) => {
+              const real = idx % n;
+              return (
+                <button
+                  key={`${Math.floor(idx / n)}-${m.url}-${real}`}
+                  type="button"
+                  onClick={() => setZoom(true)}
+                  aria-label={`View image ${real + 1} fullscreen`}
+                  className="block h-full w-full shrink-0 snap-center"
+                >
+                  <img
+                    src={m.url}
+                    alt={m.alt ?? title}
+                    loading={loop ? undefined : idx === 0 ? "eager" : "lazy"}
+                    className="pointer-events-none h-full w-full object-cover"
+                  />
+                </button>
+              );
+            })}
           </div>
           {n > 1 && (
             <div className="mt-2 flex justify-center gap-1.5">
@@ -76,7 +113,7 @@ export function ProductGallery({ media, title }: { media: Media[]; title: string
           )}
         </div>
 
-        {/* Desktop — main image with arrows */}
+        {/* Desktop — main image with wrapping arrows */}
         <div className="relative hidden min-w-0 flex-1 md:block">
           <button
             type="button"
@@ -150,6 +187,9 @@ export function ProductGallery({ media, title }: { media: Media[]; title: string
                   onClick={(e) => {
                     e.stopPropagation();
                     setActive(i);
+                    // Keep the mobile track in sync with the lightbox choice
+                    const el = trackRef.current;
+                    if (el && loop && el.clientWidth > 0) el.scrollLeft = (n + i) * el.clientWidth;
                   }}
                   className={`h-2 rounded-full transition-all ${i === active ? "w-6 bg-gold" : "w-2 bg-white/40"}`}
                 />

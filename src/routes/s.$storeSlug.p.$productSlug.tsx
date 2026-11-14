@@ -2,7 +2,7 @@ import { createFileRoute, Link, notFound, useNavigate, useRouter } from "@tansta
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, Share2, ShieldCheck, MessageCircle, MapPin, Star, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, Share2, ShieldCheck, MessageCircle, MapPin, Star, Sparkles, Loader2, Store } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import { ProductGallery } from "@/components/ProductGallery";
@@ -256,15 +256,29 @@ function ProductPage() {
         </section>
 
         <section className="px-4 pt-4 md:px-0 md:pt-0">
-          <div className="flex items-center justify-between">
+          {/* Storefront card — who sells this, where, and one-tap to their
+              full shop (the "visit storefront" ask). */}
+          <div className="flex items-center justify-between rounded-2xl border border-border bg-card p-3">
             <Link
               to="/s/$storeSlug"
               params={{ storeSlug: store.slug }}
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+              className="flex min-w-0 items-center gap-2.5"
             >
-              {store.logo_url && <img src={store.logo_url} alt="" className="h-6 w-6 rounded-full object-cover" />}
-              {store.name}
+              {store.logo_url && <img src={store.logo_url} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />}
+              <span className="min-w-0 leading-tight">
+                <span className="block truncate text-sm font-semibold text-foreground">{store.name}</span>
+                {locationLabel && <span className="block truncate text-[11px] text-muted-foreground">{locationLabel}</span>}
+              </span>
             </Link>
+            <Link
+              to="/s/$storeSlug"
+              params={{ storeSlug: store.slug }}
+              className="flex shrink-0 items-center gap-1.5 rounded-full border border-gold/50 px-3 py-1.5 text-xs font-semibold text-gold transition-colors hover:bg-[var(--gold)] hover:text-[var(--gold-foreground)]"
+            >
+              <Store className="h-3.5 w-3.5" /> <span className="hidden min-[420px]:inline">Visit storefront</span>
+            </Link>
+          </div>
+          <div className="mt-2 flex items-center justify-end">
             <FavoriteButton productId={product.id} />
           </div>
           <h1 className="mt-2 font-display text-3xl leading-tight md:text-4xl">{product.title}</h1>
@@ -492,53 +506,41 @@ function ProductPage() {
               ))}
             </div>
           </div>
-
-          {/* Mobile: ONE merged "You might also like" grid (was three
-              overlapping sections showing the same products twice). */}
-          {((related.data ?? []).length > 0 || (moreFromStore.data ?? []).length > 0) && (
-            <div className="mt-8 border-t border-border pt-6 md:hidden">
-              <p className="mb-3 flex items-center gap-2.5 text-[10px] font-semibold uppercase tracking-[0.34em] text-muted-foreground">
-                <span className="h-px w-6 bg-gold/60" aria-hidden /> You might also like
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                {(() => {
-                  const seen = new Set<string>();
-                  const merged = [...(related.data ?? []), ...(moreFromStore.data ?? [])].filter((p: any) => {
-                    if (seen.has(p.id)) return false;
-                    seen.add(p.id);
-                    return true;
-                  });
-                  return merged.slice(0, 8).map((p: any) => <ProductCardTile key={p.id} p={p} />);
-                })()}
-              </div>
-            </div>
-          )}
-
-          {/* More from this store — desktop rail */}
-          {(moreFromStore.data ?? []).length > 0 && (
-            <div className="mt-8 hidden border-t border-border pt-6 md:block">
-              <h2 className="font-display text-xl">More from {store.name}</h2>
-              <div className="no-scrollbar mt-3 flex gap-3 overflow-x-auto pb-2">
-                {moreFromStore.data!.map((p: any) => (
-                  <div key={p.id} className="w-36 shrink-0"><ProductCardTile p={p} /></div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Related in category — desktop rail */}
-          {(related.data ?? []).length > 0 && (
-            <div className="mt-8 hidden border-t border-border pt-6 md:block">
-              <h2 className="font-display text-xl">You may also like</h2>
-              <div className="no-scrollbar mt-3 flex gap-3 overflow-x-auto pb-2">
-                {related.data!.map((p: any) => (
-                  <div key={p.id} className="w-36 shrink-0"><ProductCardTile p={p} /></div>
-                ))}
-              </div>
-            </div>
-          )}
         </section>
       </div>
+
+      {/* Full-width discovery sections — below the split so the grid uses the
+          whole canvas instead of a squeezed side column. */}
+      {(moreFromStore.data ?? []).length > 0 && (
+        <div className="border-t border-border px-4 pt-6 md:px-8">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-xl">More from {store.name}</h2>
+            <Link
+              to="/s/$storeSlug"
+              params={{ storeSlug: store.slug }}
+              className="flex items-center gap-1 text-xs font-semibold text-gold hover:underline"
+            >
+              Visit storefront <Store className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 pb-6 sm:grid-cols-3 lg:grid-cols-4">
+            {moreFromStore.data!.slice(0, 8).map((p: any) => (
+              <ProductCardTile key={p.id} p={p} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(related.data ?? []).length > 0 && (
+        <div className="border-t border-border px-4 pb-8 pt-6 md:px-8">
+          <h2 className="font-display text-xl">Similar products</h2>
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {related.data!.slice(0, 8).map((p: any) => (
+              <ProductCardTile key={p.id} p={p} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Sticky buy bar — mobile only (Temu-style: price + primary action are
           always one thumb-reach away, no matter how far you've scrolled).
