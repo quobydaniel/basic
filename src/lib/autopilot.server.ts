@@ -161,6 +161,7 @@ CRITICAL: prices and stock only from the catalog (except a price the buyer thems
 
   let reply = result.text.trim();
   let orderNumber: string | null = null;
+  let systemCard: { body: string; metadata: any } | null = null;
   const om = reply.match(/ORDER_READY:\s*product_slug=([^\s|]+)\s*\|\s*qty=(\d+)\s*\|\s*variant=([^|]*)\s*\|\s*delivery=([^|]*)\s*\|\s*payment=([^|]*)\s*(?:\|\s*price=([^|\s]*))?\s*$/);
   reply = reply.replace(/ORDER_READY:[\s\S]*$/, "").trim();
   if (om) {
@@ -232,11 +233,13 @@ CRITICAL: prices and stock only from the catalog (except a price the buyer thems
           total,
           variant_title: variant,
         });
-        await postMessage({
-          kind: "system_order",
+        // The card is posted AFTER the text reply (see delivery below) —
+        // hoisted here so the loser of an insert race never posts a card
+        // for an order it didn't win.
+        systemCard = {
           body: `Order #${orderNumber} placed by AI auto-pilot — ${qty}× ${prod.title} · ${prod.currency ?? "GHS"} ${total}${deliveryArea ? ` · ${deliveryArea}` : ""}`,
           metadata: { order_id: (order as any).id, ai: true },
-        });
+        };
         const waDigits = String(st.whatsapp_number ?? "").replace(/\D/g, "");
         const waText = `BASIC order needs your confirmation: #${orderNumber} — ${qty}× ${prod.title} (${prod.currency ?? "GHS"} ${total})${deliveryArea ? ` — deliver to ${deliveryArea}` : ""}${variant ? ` — ${variant}` : ""}. Buyer chat is in your dashboard.`;
         // Best-effort: RLS may not let the buyer's session notify the seller —
@@ -254,8 +257,26 @@ CRITICAL: prices and stock only from the catalog (except a price the buyer thems
     }
   }
 
+  // Deliver the TEXT first: the RPC's last-message gate only lets a message
+  // through when the newest one is the buyer's, so the AI's text must claim
+  // that slot before anything else lands. Losers of a multi-surface race are
+  // refused here ("nothing to reply to") — one AI answer per buyer message.
   if (reply) {
     await postMessage({ kind: "text", body: reply, metadata: { ai: true } });
+  }
+  // The order card goes out as a null-sender message via a plain insert —
+  // messages RLS allows any participant to post sender_id NULL, it renders
+  // as the centered gold card for both sides, and it doesn't consume the
+  // RPC's one-reply-per-buyer-message slot.
+  if (systemCard) {
+    const { error: cardErr } = await supabase.from("messages").insert({
+      conversation_id: conversationId,
+      sender_id: null,
+      kind: "system_order",
+      body: systemCard.body,
+      metadata: systemCard.metadata,
+    });
+    if (cardErr) console.error("[autopilot] order card insert failed:", cardErr.message);
   }
   return { reply, order_number: orderNumber };
 
