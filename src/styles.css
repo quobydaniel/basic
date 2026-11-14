@@ -5,10 +5,14 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * BASIC · Obsidian — After-dark luxury design system.
- * Charcoal obsidian, ivory type, champagne gold. Slow, weighted motion;
- * gold light behaves like candlelight — it drifts, it never blinks.
- * Palette: Obsidian #141416 · Graphite #1E1E21 · Champagne #D8B36A · Ivory #F3EEE4
+ * BASIC · Palm & Gold — After-dark luxury, Ghana colors.
+ * Green-cast obsidian surfaces, lemon-green action, champagne-gold premium.
+ * Lemon is the working accent: CTAs, unread, presence, active states.
+ * Gold (the `gild` token) is reserved metal: Premium, Pro badges, AI
+ * surfaces, rating stars, the hero shimmer. Slow, weighted motion;
+ * the light still drifts — it never blinks.
+ * Palette: Palm obsidian #121511 · Graphite #1B201B · Lemon #A8D94A ·
+ * Champagne #D8B36A · Ivory #F3EEE4
  */
 
 @theme inline {
@@ -42,6 +46,8 @@
   --color-ring-offset-background: var(--background);
   --color-gold: var(--gold);
   --color-gold-foreground: var(--gold-foreground);
+  --color-gild: var(--gild);
+  --color-gild-foreground: var(--gild-foreground);
   --color-terracotta: var(--terracotta);
   --color-sage: var(--sage);
   --color-ink: var(--ink);
@@ -59,49 +65,53 @@
   --shadow-lift: 0 2px 6px oklch(0 0 0 / 0.5), 0 28px 64px oklch(0 0 0 / 0.6);
 }
 
-/* Obsidian — default theme is the after-dark surface. */
+/* Palm & Gold — default theme is the after-dark surface. */
 :root {
   --radius: 0.5rem;
 
-  --background: oklch(0.155 0.008 260);       /* obsidian */
-  --cream: oklch(0.155 0.008 260);
-  --foreground: oklch(0.93 0.015 90);         /* ivory */
-  --ink: oklch(0.93 0.015 90);
+  --background: oklch(0.148 0.012 150);       /* palm obsidian — green-cast charcoal */
+  --cream: oklch(0.148 0.012 150);
+  --foreground: oklch(0.93 0.012 110);        /* ivory, warmed to the green */
+  --ink: oklch(0.93 0.012 110);
 
-  --card: oklch(0.19 0.008 260);              /* graphite */
-  --card-foreground: oklch(0.93 0.015 90);
-  --popover: oklch(0.21 0.01 260);
-  --popover-foreground: oklch(0.93 0.015 90);
+  --card: oklch(0.185 0.012 150);             /* graphite with a leaf cast */
+  --card-foreground: oklch(0.93 0.012 110);
+  --popover: oklch(0.205 0.014 150);
+  --popover-foreground: oklch(0.93 0.012 110);
 
-  --primary: oklch(0.80 0.11 85);             /* champagne gold */
-  --primary-foreground: oklch(0.16 0.01 260);
+  --primary: oklch(0.84 0.16 125);            /* lemon green — the action accent */
+  --primary-foreground: oklch(0.17 0.03 140);
 
-  --secondary: oklch(0.25 0.01 260);
-  --secondary-foreground: oklch(0.93 0.015 90);
+  --secondary: oklch(0.25 0.01 150);
+  --secondary-foreground: oklch(0.93 0.012 110);
 
-  --muted: oklch(0.24 0.008 260);
-  --muted-foreground: oklch(0.62 0.015 90);
+  --muted: oklch(0.24 0.01 150);
+  --muted-foreground: oklch(0.63 0.015 110);
 
-  --accent: oklch(0.27 0.015 260);
-  --accent-foreground: oklch(0.93 0.015 90);
+  --accent: oklch(0.27 0.016 150);
+  --accent-foreground: oklch(0.93 0.012 110);
 
   --destructive: oklch(0.62 0.18 25);
   --destructive-foreground: oklch(0.98 0 0);
 
-  --border: oklch(0.80 0.09 85 / 22%);        /* gold-tinted hairline */
-  --input: oklch(0.80 0.09 85 / 16%);
-  --ring: oklch(0.80 0.11 85);
+  --border: oklch(0.72 0.08 130 / 22%);       /* lemon-tinted hairline */
+  --input: oklch(0.72 0.08 130 / 16%);
+  --ring: oklch(0.84 0.16 125);
 
-  --gold: oklch(0.80 0.11 85);
-  --gold-foreground: oklch(0.16 0.01 260);
-  --terracotta: oklch(0.68 0.10 45);
+  /* The accent token everything binds to — lemon green. */
+  --gold: oklch(0.84 0.16 125);
+  --gold-foreground: oklch(0.17 0.03 140);
+  /* `gild` — reserved champagne metal for premium surfaces. */
+  --gild: oklch(0.80 0.11 85);
+  --gild-foreground: oklch(0.17 0.02 150);
+  --terracotta: oklch(0.72 0.10 85);          /* warm gold-amber for the hero glow */
   --sage: oklch(0.66 0.07 160);
 
-  --chart-1: oklch(0.80 0.11 85);
-  --chart-2: oklch(0.68 0.10 45);
+  --chart-1: oklch(0.84 0.16 125);
+  --chart-2: oklch(0.80 0.11 85);
   --chart-3: oklch(0.66 0.07 160);
-  --chart-4: oklch(0.72 0.08 105);
-  --chart-5: oklch(0.58 0.06 260);
+  --chart-4: oklch(0.72 0.10 85);
+  --chart-5: oklch(0.58 0.06 150);
 }
 
 /* ── Light mode — "Ivory & Champagne". Same house, daylight hours. ──

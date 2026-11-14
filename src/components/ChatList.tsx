@@ -5,7 +5,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { MessageCircle, Search, ChevronRight } from "lucide-react";
+import { MessageCircle, Search } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
@@ -20,7 +20,7 @@ type Convo = {
   unread_buyer: number;
   unread_seller: number;
   store: { name: string; logo_url: string | null; slug: string } | null;
-  product: { title: string } | null;
+  product: { title: string; product_media?: { url: string }[] } | null;
   buyer: { full_name: string; avatar_url: string | null } | null;
 };
 
@@ -42,9 +42,13 @@ type Tab = "all" | "unread";
 export function ChatList({
   scope,
   activeId,
+  chrome = false,
 }: {
   scope: ChatScope;
   activeId?: string;
+  /** Dashboard variant: render the big "Seller chats" title block. The
+   * marketplace shell provides its own app bar instead. */
+  chrome?: boolean;
 }) {
   const { user, loading } = useSession();
   const qc = useQueryClient();
@@ -58,7 +62,7 @@ export function ChatList({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("conversations" as any)
-        .select("id, buyer_id, seller_id, last_message_at, unread_buyer, unread_seller, store:stores(name, logo_url, slug), product:products(title)")
+        .select("id, buyer_id, seller_id, last_message_at, unread_buyer, unread_seller, store:stores(name, logo_url, slug), product:products(title, product_media(url))")
         .or(`buyer_id.eq.${user!.id},seller_id.eq.${user!.id}`)
         .order("last_message_at", { ascending: false });
       if (error) throw error;
@@ -139,23 +143,26 @@ export function ChatList({
 
   return (
     <>
-      <div className="flex items-center gap-2 px-4 pt-4 md:px-5">
-        <h1 className="font-display text-3xl">{scope === "selling" ? "Seller chats" : "Chats"}</h1>
-        {/* Page bell serves mobile — the masthead cluster has one on desktop */}
-        <span className="md:hidden"><NotificationBell /></span>
-        {totalUnread > 0 && (
-          <span className="rounded-full bg-[var(--gold)] px-2 py-0.5 text-[11px] font-bold text-[var(--gold-foreground)]">
-            {totalUnread} new
-          </span>
-        )}
-      </div>
+      {/* Big title block — dashboard variant only; the marketplace shell's
+          app bar replaces it there. */}
+      {chrome && (
+        <div className="flex items-center gap-2 px-4 pt-4 md:px-5">
+          <h1 className="font-display text-3xl">{scope === "selling" ? "Seller chats" : "Chats"}</h1>
+          <span className="md:hidden"><NotificationBell /></span>
+          {totalUnread > 0 && (
+            <span className="rounded-full bg-[var(--gold)] px-2 py-0.5 text-[11px] font-bold text-[var(--gold-foreground)]">
+              {totalUnread} new
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Personas stay separate: the buyer inbox shows nothing about selling,
           the seller inbox (in the dashboard) knows nothing of shopping. */}
       {user && (
         <>
-          <div className="px-4 pt-3 md:px-5">
-            <div className="flex items-center gap-2.5 rounded-full border border-border bg-card px-4 py-2.5 focus-within:border-gold/60">
+          <div className="px-3 pt-2.5 md:px-3.5">
+            <div className="flex items-center gap-2.5 rounded-full border border-border bg-card px-3.5 py-2 focus-within:border-gold/60">
               <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
               <input
                 value={q}
@@ -166,7 +173,7 @@ export function ChatList({
             </div>
           </div>
 
-          <div className="flex gap-1.5 px-4 pt-3 md:px-5">
+          <div className="flex gap-1.5 px-3 pt-2 md:px-3.5">
             {(["all", "unread"] as Tab[]).map((t) => (
               <button
                 key={t}
@@ -177,14 +184,14 @@ export function ChatList({
                     : "border border-border text-muted-foreground hover:border-gold/40 hover:text-foreground"
                 }`}
               >
-                {t === "all" ? "All" : "Unread"}
+                {t === "all" ? "All" : `Unread${totalUnread > 0 ? ` · ${totalUnread}` : ""}`}
               </button>
             ))}
           </div>
         </>
       )}
 
-      <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-4 md:px-3">
+      <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto px-1.5 pb-4 md:px-2.5">
         {loading && <p className="px-4 py-6 text-sm text-muted-foreground">Loading…</p>}
         {!loading && !user && (
           <div className="mx-2 mt-6 flex flex-col items-center rounded-3xl border border-dashed border-border p-10 text-center">
@@ -245,9 +252,13 @@ export function ChatList({
                   params: { conversationId: c.id },
                 });
               }}
-              className="flex w-full items-center gap-3 rounded-2xl p-3 text-left transition-colors hover:bg-accent/60 data-[active=true]:bg-accent/70"
+              className="relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-accent/60 data-[active=true]:bg-[var(--gold)]/[0.09]"
             >
-              <div className={`h-12 w-12 shrink-0 overflow-hidden rounded-full bg-muted ring-2 ${unread > 0 || c.id === activeId ? "ring-[var(--gold)]/70" : "ring-border"}`}>
+              {/* Active pin — a gold slug on the left edge, not a filled row */}
+              {c.id === activeId && (
+                <span className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-full bg-[var(--gold)]" aria-hidden />
+              )}
+              <div className={`h-11 w-11 shrink-0 overflow-hidden rounded-full ring-2 ${unread > 0 || c.id === activeId ? "ring-[var(--gold)]/60" : "ring-border/50"}`}>
                 {(scope === "selling" ? c.buyer?.avatar_url : c.store?.logo_url) ? (
                   <img src={(scope === "selling" ? c.buyer!.avatar_url : c.store!.logo_url)!} alt="" className="h-full w-full object-cover" />
                 ) : (
@@ -256,25 +267,27 @@ export function ChatList({
                   </span>
                 )}
               </div>
-              <div className="min-w-0 flex-1 border-b border-border/40 pb-3 pt-0.5">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-2">
-                  <p className={`line-clamp-1 text-[15px] ${unread > 0 ? "font-semibold text-foreground" : "font-medium"}`}>
+                  <p className={`line-clamp-1 text-[14px] ${unread > 0 ? "font-bold text-foreground" : "font-medium text-foreground/90"}`}>
                     {scope === "selling" ? c.buyer?.full_name || "Buyer" : c.store?.name ?? "Store"}
                   </p>
-                  <span className={`shrink-0 text-[11px] ${unread > 0 ? "font-semibold text-[var(--gold)]" : "text-muted-foreground"}`}>
+                  <span className={`shrink-0 text-[10px] ${unread > 0 ? "font-semibold text-[var(--gold)]" : "text-muted-foreground"}`}>
                     {c.last_message_at && timeLabel(c.last_message_at)}
                   </span>
                 </div>
                 <div className="mt-0.5 flex items-center justify-between gap-2">
-                  <p className={`line-clamp-1 text-[13px] ${unread > 0 ? "text-foreground" : "text-muted-foreground"}`}>
+                  <p className={`line-clamp-1 text-[12px] ${unread > 0 ? "text-foreground/90" : "text-muted-foreground"}`}>
                     {preview}
                     {c.product?.title && last == null && <span className="text-muted-foreground"> · {c.product.title}</span>}
                   </p>
                   {unread > 0 ? (
                     <span className="grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-[var(--gold)] px-1.5 text-[10px] font-bold text-[var(--gold-foreground)]">{unread}</span>
-                  ) : (
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/40" />
-                  )}
+                  ) : c.product?.product_media?.[0]?.url ? (
+                    <span className="h-7 w-7 shrink-0 overflow-hidden rounded-md ring-1 ring-border/60" title={c.product.title}>
+                      <img src={c.product.product_media[0].url} alt="" className="h-full w-full object-cover" />
+                    </span>
+                  ) : null}
                 </div>
               </div>
             </button>

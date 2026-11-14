@@ -30,9 +30,11 @@ export function AppShell({
   productId?: string;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  // Chat is an app-like surface: full-height messenger, no footer and no
-  // bottom tab bar — the conversation list is the navigation there.
-  const isChat = pathname.startsWith("/chat");
+  // Chat is an app-like surface: the shell owns the whole viewport — no
+  // masthead, no footer, no bottom tab bar. The conversation list carries
+  // its own slim app bar (brand chip, bell, account). Covers the buyer
+  // inbox and the marketplace seller inbox.
+  const isChat = pathname.startsWith("/chat") || pathname.startsWith("/sell/chat");
   // Product detail is the same kind of surface on mobile: the sticky buy bar
   // replaces the tab bar (Temu-style) and the back arrow replaces breadcrumbs.
   const isProductDetail = /^\/s\/[^/]+\/p\/.+/.test(pathname);
@@ -48,8 +50,8 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <TopBar />
-      <main className={`mx-auto max-w-2xl md:max-w-6xl ${isChat ? "pb-0" : "pb-28 md:pb-16"}`}>{children}</main>
+      {!isChat && <TopBar />}
+      <main className={isChat ? "" : "mx-auto max-w-2xl md:max-w-6xl pb-28 md:pb-16"}>{children}</main>
       {/* Footer lives ONLY on the Account page now — every other surface
           stays content-first (Jiji/Temu pattern). */}
       {!appSurface && <BottomTabBar />}

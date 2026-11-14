@@ -421,8 +421,9 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
             if (idx > 0) window.history.back();
             else navigate({ to: isSeller ? "/dashboard/chats" : "/chat" });
           }}
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-accent"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-accent md:hidden"
           aria-label="Back"
+          title="Back"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
@@ -582,6 +583,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
         <Link
           to="/s/$storeSlug/p/$productSlug"
           params={{ storeSlug: convo.data.store.slug, productSlug: product.slug }}
+          data-full-bleed
           className="z-10 flex items-center gap-2.5 border-b border-border bg-card px-3 py-1.5 transition-colors hover:bg-accent/60"
         >
           <div className="h-8 w-8 shrink-0 overflow-hidden rounded-lg bg-muted">
