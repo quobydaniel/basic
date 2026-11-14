@@ -197,7 +197,6 @@ export const adminSetModelConfig = createServerFn({ method: "POST" })
       .object({
         fn_name: z.enum([
           "generateListingFromPhotos",
-          "draftChatReplies",
           "generateMarketingPost",
           "computeStoreInsights",
           "assistantChat",

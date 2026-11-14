@@ -1,8 +1,8 @@
 // Split-view chat shell shared by the buyer inbox (/chat) and the seller
 // inbox (/dashboard/chats, inside the seller dashboard). The left pane is the
 // scoped conversation list; the right pane shows the empty state or the
-// selected thread (<Outlet />) — where the AI drafts replies to buyers on
-// the seller's behalf. On mobile one pane shows at a time, full-screen.
+// selected thread (<Outlet />). On mobile one pane shows at a time,
+// full-screen.
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { MessageCircle } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
@@ -49,7 +49,7 @@ export function ChatShell({ scope, surface = "marketplace" }: { scope: ChatScope
               </p>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                 {scope === "selling"
-                  ? "Pick a conversation to reply. The sparkle inside a chat drafts replies to the buyer for you — describing the product, tracking their order, closing the deal."
+                  ? "Pick a conversation to reply. Switch on auto-pilot and the AI answers buyers, takes orders and alerts you — even while you're away."
                   : "Pick a chat on the left. Ask about a piece, agree a price, and close the deal — sellers reply fast on BASIC."}
               </p>
             </div>

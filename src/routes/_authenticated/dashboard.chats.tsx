@@ -1,5 +1,5 @@
 // /dashboard/chats — the SELLER inbox, inside the seller dashboard. Buyer
-// conversations for the user's store only; the AI drafts replies to buyers
+// conversations for the user's store only; auto-pilot replies to buyers
 // inside each thread (describe the product, track orders, close the deal).
 // The buyer inbox lives at /chat. Header carries the store-wide Auto-reply
 // AI switch (Pro) — the same toggle that appears in each thread.
@@ -64,7 +64,7 @@ function SellerChatsPage() {
             <div className="min-w-0">
               <p className="text-sm font-medium leading-tight">Auto-reply AI</p>
               <p className="truncate text-xs text-muted-foreground">
-                {st.auto_pilot === true ? "Answering buyers, taking orders & alerting you — even when you're away." : "Off — you reply yourself (AI drafts still available in each chat)."}
+                {st.auto_pilot === true ? "Answering buyers, taking orders & alerting you — even when you're away." : "Off — you reply yourself."}
               </p>
             </div>
           </div>

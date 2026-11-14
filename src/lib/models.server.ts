@@ -22,10 +22,6 @@ export const AI_MODELS = {
   // Multi-image vision → extracts title/description/specs/price from a product photo.
   generateListingFromPhotos: "meta/llama-3.2-90b-vision-instruct",
 
-  // Chat reply drafts: fast general chat; MiniMax M3.1 flash is the verified
-  // successor on this account.
-  draftChatReplies: "minimaxai/minimax-m3.1-flash",
-
   // Marketing copy: was DeepSeek v4-flash per owner's pick — that line EOL'd
   // (2026-09-21) and v4.1-flash hangs. M3.1 flash until deepseek answers again.
   generateMarketingPost: "minimaxai/minimax-m3.1-flash",

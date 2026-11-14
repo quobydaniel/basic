@@ -2,10 +2,10 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone, ChevronRight, ClipboardList, Loader2 } from "lucide-react";
+import { ArrowLeft, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone, ChevronRight, ClipboardList, Loader2, MoreVertical } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
-import { draftChatReplies, autoPilotReply, autoPilotReplyRemote, summarizeConversation } from "@/lib/ai.functions";
+import { autoPilotReply, autoPilotReplyRemote, summarizeConversation } from "@/lib/ai.functions";
 import { formatGHS } from "@/lib/format";
 import { toast } from "sonner";
 
@@ -54,19 +54,18 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   const { user } = useSession();
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const draft = useServerFn(draftChatReplies);
   const summarize = useServerFn(summarizeConversation);
 
   const [text, setText] = useState("");
-  const [drafts, setDrafts] = useState<string[]>([]);
-  const [aiBusy, setAiBusy] = useState(false);
   // Seller's AI recap: a one-glance summary of what the buyer wants, ready
   // to confirm — with a one-tap "create the order" handoff.
   const [recap, setRecap] = useState<any>(null);
   const [recapBusy, setRecapBusy] = useState(false);
   const [showRecap, setShowRecap] = useState(false);
-  // True while the store's AI (auto-pilot) is composing its reply — renders
-  // the WhatsApp-style typing bubble so the buyer knows the seller got it.
+  const [menuOpen, setMenuOpen] = useState(false);
+  // True while the store's AI (auto-pilot) is composing its reply — the
+  // buyer sees the WhatsApp-style typing bubble; the watching seller sees
+  // "AI is replying…" in the header.
   const [aiTyping, setAiTyping] = useState(false);
   const [showOrderPanel, setShowOrderPanel] = useState(false);
   const [orderTotal, setOrderTotal] = useState("");
@@ -85,6 +84,25 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
         .single();
       if (error) throw error;
       return data as any;
+    },
+  });
+
+  const isSeller = !!(convo.data && user && convo.data.seller_id === user.id);
+
+  // The party on the other side: the seller header shows the buyer's name
+  // and avatar (a chat header always shows WHO you're talking to), fetched
+  // separately from profiles — same best-effort pattern as ChatList.
+  const buyerProfile = useQuery({
+    queryKey: ["convo-buyer", convo.data?.buyer_id],
+    enabled: isSeller,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles" as any)
+        .select("full_name, avatar_url")
+        .eq("id", convo.data!.buyer_id)
+        .maybeSingle();
+      if (error) return null;
+      return (data ?? null) as any;
     },
   });
 
@@ -146,35 +164,28 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [msgs.data?.length, aiTyping]);
 
-  const isSeller = !!(convo.data && user && convo.data.seller_id === user.id);
   const store: any = convo.data?.store ?? null;
   const autoPilotOn = !!(user && isSeller && store?.plan === "pro" && store?.auto_pilot);
 
-  // ── SELLER side: AI drafts / auto-pilot while the seller is online ──
+  // ── SELLER side: auto-pilot runs while the seller watches the thread ──
+  // (Offline coverage is the buyer-triggered remote path below.) When
+  // auto-pilot is OFF the seller simply replies by typing — no AI drafts.
   const lastMsg = msgs.data?.[msgs.data.length - 1];
   const autoRef = useRef<string | null>(null);
   const autoPilot = useServerFn(autoPilotReply);
   useEffect(() => {
     if (!user || !convo.data || !lastMsg) return;
     if (convo.data.seller_id !== user.id) return;
-    if (store?.plan !== "pro") return;
+    if (!autoPilotOn) return;
     if (lastMsg.sender_id === user.id) return;
     if (autoRef.current === lastMsg.id) return;
     autoRef.current = lastMsg.id;
-    if (autoPilotOn) {
-      setAiBusy(true);
-      autoPilot({ data: { conversation_id: conversationId } })
-        .then(() => qc.invalidateQueries({ queryKey: ["msgs", conversationId] }))
-        .catch(() => {})
-        .finally(() => setAiBusy(false));
-    } else {
-      setAiBusy(true);
-      draft({ data: { conversation_id: conversationId } })
-        .then((arr) => setDrafts(arr as string[]))
-        .catch(() => {})
-        .finally(() => setAiBusy(false));
-    }
-  }, [user, convo.data, lastMsg, conversationId, draft, autoPilot, autoPilotOn]);
+    setAiTyping(true);
+    autoPilot({ data: { conversation_id: conversationId } })
+      .then(() => qc.invalidateQueries({ queryKey: ["msgs", conversationId] }))
+      .catch(() => {})
+      .finally(() => setAiTyping(false));
+  }, [user, convo.data, lastMsg, conversationId, autoPilot, autoPilotOn]);
 
   // ── BUYER side: the offline-seller auto-reply ──
   // When the store runs Pro auto-pilot, the buyer's send pings the server and
@@ -210,7 +221,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     try {
       const { error } = await supabase.from("stores" as any).update({ auto_pilot: next }).eq("id", storeId);
       if (error) throw error;
-      toast.success(next ? "AI auto-pilot is ON — it will reply, take orders and alert you." : "AI auto-pilot is OFF — back to drafts.");
+      toast.success(next ? "AI auto-pilot is ON — it will reply, take orders and alert you." : "AI auto-pilot is OFF — you reply yourself.");
       qc.invalidateQueries({ queryKey: ["convo", conversationId] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not change auto-pilot");
@@ -222,7 +233,6 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   async function send(body: string) {
     if (!body.trim() || !user) return;
     setText("");
-    setDrafts([]);
     const { error } = await supabase
       .from("messages" as any)
       .insert({ conversation_id: conversationId, sender_id: user.id, kind: "text", body: body.trim() });
@@ -230,18 +240,6 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
       toast.error(error.message);
       setText(body); // restore the typed message so it isn't lost
     } else qc.invalidateQueries({ queryKey: ["msgs", conversationId] });
-  }
-
-  async function suggestReplies() {
-    setAiBusy(true);
-    try {
-      const arr = await draft({ data: { conversation_id: conversationId } });
-      setDrafts(arr as string[]);
-    } catch {
-      toast.error("AI unavailable");
-    } finally {
-      setAiBusy(false);
-    }
   }
 
   // SELLER: AI recap of the whole conversation — what was agreed, what's
@@ -355,8 +353,10 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
-      {/* Header — Jiji-style: who you're talking to, presence, one-tap call/WhatsApp */}
-      <header className="z-10 flex items-center gap-2.5 border-b border-border bg-background/95 px-3 py-2.5 backdrop-blur">
+      {/* Header — who you're talking to, presence, one-tap contact.
+          Buyer sees the store; seller sees the buyer (never their own
+          storefront staring back at them). */}
+      <header className="z-20 flex items-center gap-2.5 border-b border-border bg-background/95 px-3 py-2.5 backdrop-blur">
         {/* History-aware back: a thread opened from a product page returns
             there; one opened from the inbox returns to the inbox. Fallback
             is the role's inbox (mobile has no other way out of the thread). */}
@@ -371,14 +371,26 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted ring-1 ring-gold/30">
-          {convo.data?.store?.logo_url && <img src={convo.data.store.logo_url} alt="" className="h-full w-full object-cover" />}
-        </div>
+        {isSeller ? (
+          <div className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-[var(--gold)]/15 text-sm font-bold text-[var(--gold)] ring-1 ring-gold/30">
+            {buyerProfile.data?.avatar_url ? (
+              <img src={buyerProfile.data.avatar_url} alt="" className="h-full w-full object-cover" />
+            ) : (
+              ((buyerProfile.data?.full_name ?? "B").trim().charAt(0).toUpperCase() || "B")
+            )}
+          </div>
+        ) : (
+          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted ring-1 ring-gold/30">
+            {convo.data?.store?.logo_url && <img src={convo.data.store.logo_url} alt="" className="h-full w-full object-cover" />}
+          </div>
+        )}
         <div className="min-w-0 flex-1">
-          <p className="line-clamp-1 font-semibold leading-tight">{convo.data?.store?.name ?? "…"}</p>
+          <p className="line-clamp-1 font-semibold leading-tight">
+            {isSeller ? buyerProfile.data?.full_name || "Buyer" : convo.data?.store?.name ?? "…"}
+          </p>
           <p className={`text-[11px] leading-tight ${aiTyping ? "font-medium text-gold" : "text-muted-foreground"}`}>
             {aiTyping
-              ? "typing…"
+              ? isSeller ? "AI is replying…" : "typing…"
               : isSeller
                 ? "Buyer conversation"
                 : store?.plan === "pro" && store?.auto_pilot
@@ -425,25 +437,70 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
             <span className="hidden sm:inline">Auto-pilot</span> {store?.auto_pilot ? "ON" : "OFF"}
           </button>
         )}
+        {/* Seller tools — AI recap + create order, one ⋮ away. The composer
+            row carries nothing but chat. */}
+        {isSeller && (
+          <div className="relative shrink-0">
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              className="grid h-9 w-9 place-items-center rounded-full hover:bg-accent"
+              aria-label="Chat actions"
+              aria-expanded={menuOpen}
+            >
+              <MoreVertical className="h-5 w-5" />
+            </button>
+            {menuOpen && (
+              <>
+                <button
+                  className="fixed inset-0 z-30 cursor-default"
+                  onClick={() => setMenuOpen(false)}
+                  aria-label="Close menu"
+                  tabIndex={-1}
+                />
+                <div className="absolute right-0 top-10 z-40 w-56 overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
+                  {(msgs.data?.length ?? 0) > 0 && (
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        loadRecap();
+                      }}
+                      className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm hover:bg-accent"
+                    >
+                      <ClipboardList className="h-4 w-4 shrink-0 text-[var(--gold)]" /> AI recap of this chat
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (!orderTotal && product?.base_price) setOrderTotal(String(product.base_price));
+                      setShowOrderPanel(true);
+                    }}
+                    className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm hover:bg-accent"
+                  >
+                    <Tag className="h-4 w-4 shrink-0 text-[var(--gold)]" /> Create order
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </header>
 
-      {/* Product context card — tap anywhere to open the listing */}
+      {/* Product context chip — tap anywhere to open the listing */}
       {product && (
         <Link
           to="/s/$storeSlug/p/$productSlug"
           params={{ storeSlug: convo.data.store.slug, productSlug: product.slug }}
-          className="z-10 flex items-center gap-3 border-b border-border bg-card px-3 py-2.5 transition-colors hover:bg-accent/60"
+          className="z-10 flex items-center gap-2.5 border-b border-border bg-card px-3 py-1.5 transition-colors hover:bg-accent/60"
         >
-          <div className="h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-muted">
+          <div className="h-8 w-8 shrink-0 overflow-hidden rounded-lg bg-muted">
             {productImage && <img src={productImage} alt="" className="h-full w-full object-cover" />}
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="line-clamp-1 text-sm font-medium">{product.title}</p>
-            <p className="text-xs font-semibold text-gold">{formatGHS(product.base_price, { currency: product.currency })}</p>
+          <div className="min-w-0 flex-1 leading-tight">
+            <p className="line-clamp-1 text-xs font-medium">{product.title}</p>
+            <p className="text-[11px] font-semibold text-gold">{formatGHS(product.base_price, { currency: product.currency })}</p>
           </div>
-          <span className="shrink-0 rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground">
-            View <ChevronRight className="mb-0.5 inline h-3 w-3" />
-          </span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
         </Link>
       )}
 
@@ -516,8 +573,10 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
               </div>
             );
           })}
-          {/* Store AI is typing — WhatsApp-style bubble */}
-          {aiTyping && (
+          {/* Store AI is typing — WhatsApp-style bubble. Buyer view only:
+              the watching seller gets the header hint instead, since on
+              that side the AI speaks AS the seller. */}
+          {aiTyping && !isSeller && (
             <div className="flex justify-start">
               <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-md border border-border/60 bg-card px-4 py-3 shadow-sm" aria-label="Seller is typing">
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:0ms]" />
@@ -529,20 +588,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
         </div>
       </div>
 
-      {/* SELLER: AI recap — what the buyer wants, ready to confirm.
-          Hidden while the thread is empty (nothing to summarize). */}
-      {isSeller && !showRecap && (msgs.data?.length ?? 0) > 0 && (
-        <div className="border-t border-border bg-card/60 px-3 py-1.5 backdrop-blur">
-          <button
-            onClick={loadRecap}
-            disabled={recapBusy}
-            className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-semibold text-[var(--gold)] hover:bg-accent disabled:opacity-50"
-          >
-            <ClipboardList className="h-3.5 w-3.5" />
-            {recapBusy ? "Summarizing…" : "AI recap of this chat"}
-          </button>
-        </div>
-      )}
+      {/* SELLER: AI recap panel — opened from the header ⋮ menu. */}
       {isSeller && showRecap && (
         <div className="border-t border-border bg-card px-3 py-3 backdrop-blur">
           <div className="flex items-center justify-between">
@@ -588,46 +634,9 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
                 >
                   Create order with these details
                 </button>
-                <button
-                  onClick={() => {
-                    setShowRecap(false);
-                    void suggestReplies();
-                  }}
-                  className="rounded-full border border-border px-4 py-1.5 text-xs font-semibold text-muted-foreground hover:border-gold/50 hover:text-gold"
-                >
-                  Draft a reply instead
-                </button>
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Draft chips — seller-side AI only. Buyers have no AI in their chat. */}
-      {isSeller && drafts.length > 0 && (
-        <div className="border-t border-border bg-card/60 px-3 py-2 backdrop-blur">
-          <div className="flex items-center justify-between">
-            <p className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              <Sparkles className="h-3 w-3 text-gold" /> AI reply drafts
-            </p>
-            <button onClick={() => setDrafts([])} aria-label="Clear drafts" className="grid h-6 w-6 place-items-center rounded-full hover:bg-accent">
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-          <div className="mt-1 flex gap-2 overflow-x-auto">
-            {drafts.map((d, i) => (
-              <button
-                key={i}
-                onClick={() => {
-                  send(d);
-                  setDrafts([]);
-                }}
-                className="max-w-xs whitespace-normal rounded-2xl border border-border bg-background px-3 py-2 text-left text-xs hover:border-primary"
-              >
-                {d}
-              </button>
-            ))}
-          </div>
         </div>
       )}
 
@@ -682,9 +691,6 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
         </div>
       )}
 
-      {/* Buyer: make offer panel — removed. No AI in the buyer chat; offers
-          come from the product-page quick chips as plain prefilled text. */}
-
       {/* Composer */}
       <div className="border-t border-border bg-background px-3 pb-2 pt-2" style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
         <div className="mx-auto flex max-w-2xl items-end gap-1.5">
@@ -692,30 +698,6 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
             <ImageIcon className="h-5 w-5" />
             <input type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && uploadImage(e.target.files[0])} />
           </label>
-          {isSeller && (
-            <>
-              <button
-                onClick={suggestReplies}
-                disabled={aiBusy}
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-[var(--gold)] hover:bg-accent disabled:opacity-50"
-                aria-label="AI suggest replies"
-                title="AI reply drafts"
-              >
-                <Sparkles className="h-5 w-5" />
-              </button>
-              <button
-                onClick={() => {
-                  setShowOrderPanel((v) => !v);
-                  if (!orderTotal && product?.base_price) setOrderTotal(String(product.base_price));
-                }}
-                className={`grid h-11 w-11 shrink-0 place-items-center rounded-full hover:bg-accent ${showOrderPanel ? "bg-primary/10 text-primary" : "text-muted-foreground"}`}
-                aria-label="Create order"
-                title="Create order"
-              >
-                <Tag className="h-5 w-5" />
-              </button>
-            </>
-          )}
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
