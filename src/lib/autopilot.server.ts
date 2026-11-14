@@ -16,6 +16,7 @@ import { createNvidiaNimProvider, generateText } from "@/lib/ai-gateway.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { AI_MODELS, type AiFnName } from "@/lib/models.server";
+import { characterById } from "@/lib/ai-characters";
 
 type AnySupabase = SupabaseClient<Database>;
 
@@ -51,7 +52,7 @@ export async function runAutoPilot(
   const { data: convo } = await supabase
     .from("conversations")
     .select(
-      "id, seller_id, buyer_id, store_id, product_id, created_at, store:stores(id, name, slug, area, city, region, payment_terms, plan, auto_pilot, whatsapp_number, currency, owner_id)",
+      "id, seller_id, buyer_id, store_id, product_id, created_at, ai_price_limit, ai_enabled, store:stores(id, name, slug, area, city, region, payment_terms, plan, auto_pilot, whatsapp_number, currency, owner_id, ai_name, ai_greeting, ai_persona, ai_character)",
     )
     .eq("id", conversationId)
     .maybeSingle();
@@ -61,6 +62,8 @@ export async function runAutoPilot(
   const st: any = conv.store ?? {};
   if (st.plan !== "pro") throw new Error("Auto-pilot is a Pro feature — upgrade your store to Pro.");
   if (!st.auto_pilot) throw new Error("Auto-pilot is OFF for this store.");
+  // Per-chat pause — the thread header's Auto-pilot button writes this.
+  if (conv.ai_enabled === false) throw new Error("AI paused for this chat by the seller.");
 
   // Long memory: the last 40 messages (≈ a week of haggling), not 12 — the
   // AI kept re-greeting returning buyers and re-asking answered questions.
@@ -76,14 +79,14 @@ export async function runAutoPilot(
 
   const { data: prods } = await (supabase
     .from("products")
-    .select("id, slug, title, base_price, currency, negotiable, description, product_variants(title, inventory_qty)")
+    .select("id, slug, title, base_price, currency, negotiable, ai_min_price, description, product_variants(title, inventory_qty)")
     .eq("store_id", st.id)
     .eq("status", "active")
     .order("created_at", { ascending: false })
     .limit(12) as any);
   const stockOf = (p: any) => (p.product_variants ?? []).reduce((s2: number, v: any) => s2 + Number(v.inventory_qty ?? 0), 0);
   const catalog = (prods ?? [])
-    .map((p: any) => `- ${p.title} — ${p.currency ?? "GHS"} ${p.base_price} (product slug: ${p.slug})${p.product_variants?.length ? ` — variants: ${p.product_variants.map((v: any) => v.title).join(", ")}` : ""} — stock: ${stockOf(p) === 0 ? "SOLD OUT" : stockOf(p)}${p.negotiable ? " — price negotiable" : ""}`)
+    .map((p: any) => `- ${p.title} — ${p.currency ?? "GHS"} ${p.base_price} (product slug: ${p.slug})${p.product_variants?.length ? ` — variants: ${p.product_variants.map((v: any) => v.title).join(", ")}` : ""} — stock: ${stockOf(p) === 0 ? "SOLD OUT" : stockOf(p)}${p.negotiable ? " — price negotiable" : ""}${p.ai_min_price ? ` — AI floor: ${p.currency ?? "GHS"} ${p.ai_min_price}` : ""}`)
     .join("\n") || "(no products listed yet)";
   const listingLine = conv.product_id
     ? (() => {
@@ -91,9 +94,18 @@ export async function runAutoPilot(
         return p ? `\nThe conversation is about: "${p.title}" (${p.currency ?? "GHS"} ${p.base_price}).` : "";
       })()
     : "";
+  // Price floor context — the seller's per-chat limit overrides the product
+  // floor for this conversation; both come straight from the DB.
+  const focused = (prods ?? []).find((x: any) => x.id === conv.product_id) ?? null;
+  const chatFloor = Number((conv as any).ai_price_limit ?? 0);
+  const productFloor = focused ? Number((focused as any).ai_min_price ?? 0) : 0;
+  const floorLine =
+    chatFloor > 0 || productFloor > 0
+      ? `\nPRICE FLOOR: ${chatFloor > 0 ? `the seller's floor for this chat is ${st.currency ?? "GHS"} ${chatFloor}` : `the seller's floor for "${(focused as any)?.title}" is ${(focused as any)?.currency ?? "GHS"} ${productFloor}`}${chatFloor > 0 && productFloor > 0 ? " (the chat floor overrides the product floor)" : ""}. Never agree below it — see PRICE FLOORS in the rules.`
+      : "";
   const { data: buyerOrders } = await supabase
     .from("orders")
-    .select("order_number, status, total, currency, fulfillment_type, payment_term, notes, created_at")
+    .select("id, order_number, status, total, currency, fulfillment_type, payment_term, notes, created_at")
     .eq("store_id", st.id)
     .eq("buyer_id", conv.buyer_id)
     .order("created_at", { ascending: false })
@@ -134,27 +146,81 @@ export async function runAutoPilot(
     .filter(Boolean)
     .join("\n");
 
+  // ── AI engagement rules (after BUYER MEMORY — they need the history) ──
+  // The store master switch answers NEW customers automatically; returning
+  // customers' chats get the AI only when the seller opted THIS chat in
+  // (thread Auto-pilot button → conversations.ai_enabled = true).
+  if (returning && conv.ai_enabled !== true) {
+    throw new Error("Returning customer — the master switch covers new customers only; the seller replies personally.");
+  }
+  // Seller-online grace: when the seller is live (heartbeat < 90s), give
+  // them ~6s to answer personally. If they did, stand down — the newest-
+  // message check below (and the RPC gate) refuses the AI reply.
+  try {
+    const { data: sellerSeen } = await supabase
+      .from("profiles")
+      .select("last_seen_at")
+      .eq("id", conv.seller_id)
+      .maybeSingle();
+    const seen = (sellerSeen as any)?.last_seen_at;
+    if (seen && Date.now() - new Date(seen).getTime() < 90_000) {
+      await new Promise((r) => setTimeout(r, 6000));
+      const { data: newest } = await supabase
+        .from("messages")
+        .select("sender_id")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if ((newest ?? [])[0]?.sender_id !== conv.buyer_id) {
+        throw new Error("Seller replied during the grace window — AI stands down.");
+      }
+    }
+  } catch (e) {
+    // A presence read failing (RLS pre-11-14d) just means no grace delay —
+    // only the stand-down verdict stops the run.
+    if (e instanceof Error && e.message.includes("stands down")) throw e;
+  }
+
   const key = process.env.NVIDIA_API_KEY;
   if (!key) throw new Error("Missing NVIDIA_API_KEY");
   const gateway = createNvidiaNimProvider(key);
   const model = gateway(await resolveModel(supabase, "assistantChat"));
+  // Seller-tuned persona (Settings → AI assistant): identity name, custom
+  // greeting, and house rules the AI must follow in every reply.
+  const character = characterById(st.ai_character);
+  const aiName = String(st.ai_name ?? "").trim();
+  const identity = aiName
+    ? `You are ${aiName}, the AI sales assistant for ${st.name} on BASIC, replying to a buyer in chat on the seller's behalf.`
+    : character
+      ? `You are ${character.name} ${character.emoji}, the AI shopkeeper character of ${st.name} on BASIC (${character.blurb}), replying to a buyer in chat on the seller's behalf.`
+      : `You ARE ${st.name}'s salesperson on BASIC, replying to a buyer in chat on the seller's behalf.`;
+  const personaLine = String(st.ai_persona ?? "").trim()
+    ? `\nSELLER PERSONALITY & HOUSE RULES (obey these in every reply — tone, style, do's and don'ts — they override the default voice):\n${String(st.ai_persona).trim()}`
+    : "";
+  const greetingLine = String(st.ai_greeting ?? "").trim()
+    ? `\nGREETING: when you greet a buyer for the first time in this conversation, open with this (adapt it naturally to their message, keep it fresh on repeats):\n"${String(st.ai_greeting).trim()}"`
+    : "";
   const result = await generateText({
     model,
-    instructions: `You ARE ${st.name}'s salesperson on BASIC, replying to a buyer in chat on the seller's behalf. The seller has auto-pilot ON — you handle this conversation end-to-end.
+    instructions: `${identity} The seller has auto-pilot ON — you handle this conversation end-to-end.
 CATALOG (live data — never invent products, prices, or stock):
-${catalog}${listingLine}
+${catalog}${listingLine}${floorLine}${personaLine}${greetingLine}
 Store location: ${[st.area, st.city || st.region].filter(Boolean).join(", ") || "Ghana"}. Payment options: ${JSON.stringify(st.payment_terms ?? [])}.
 ${memoryBlock}
 CONTINUITY RULES: you have the whole chat (up to 40 recent messages) plus the BUYER MEMORY above. Never re-introduce yourself or re-greet a returning buyer like a stranger. Never re-ask a question the buyer already answered — check the history first. If you promised something earlier (a price, a callback), stay consistent with it or explicitly correct it ("Quick correction — earlier I said X, the right figure is Y"). When the buyer asks "what did the seller say", answer from the open order / memory, never with a canned deflection.
 CHANGE REQUESTS (be honest about what you can do): you CANNOT edit an order that's already placed — only the seller can change quantity, price, delivery or payment when they confirm it. When the buyer asks to change something on a pending order, say plainly: "Noted — I've flagged the change (1 copy instead of 2) for the seller to update when they confirm your order #X." Never say "I've changed it", never imply it's done, and don't ask them to order again.
 PHOTOS: you cannot see images. When the transcript shows a photo marker, never say the photo "didn't come through" and never ask the buyer to resend — the buyer sent it fine; you just can't view it. Acknowledge it naturally ("Noted, thanks for the photo — the seller will review it when they confirm") and address whatever else is open.
-HOW TO SELL LIKE A HUMAN: warm, brief (1-3 sentences), Ghana-marketplace tone. Answer questions from the catalog. For products marked "price negotiable", agree on a number like a real shopkeeper: welcome the buyer's offer, counter once if it's far below list, and once the buyer settles on a figure, that IS the deal price — pass it in ORDER_READY (price=<their number>). Every order you book lands as PENDING for the seller to confirm, so the seller always has the final say on price — you never need to refuse an agreed price yourself.
+HOW TO SELL LIKE A HUMAN: warm, brief (1-3 sentences), Ghana-marketplace tone. Answer questions from the catalog. For products marked "price negotiable", agree on a number like a real shopkeeper: welcome the buyer's offer, counter once if it's far below list, and once the buyer settles on a figure, that IS the deal price — pass it in ORDER_READY (price=<their number>).
+PRICE FLOORS — HARD RULE: some catalog lines show "AI floor: GHS X" and the seller may set a per-chat floor (see PRICE FLOOR above). NEVER agree below the floor. If the buyer's best offer is below it, decline warmly, counter at or just above the floor, and if they push again, say you'll check with the seller — then stop negotiating and wait for the seller. Every order you propose lands as PENDING for the seller to confirm, so the seller always has the final say.
 ORDER TRACKING: when the buyer asks about their order ("where is it", "when will it arrive", "did the seller confirm"), answer from the BUYER MEMORY status lines. Statuses move pending → paid → fulfilled → shipped → delivered. If the order is still pending, say it's with the seller for confirmation — and answer their actual question.
 DUPLICATE GUARD — CRITICAL: if BUYER MEMORY shows an OPEN ORDER (pending), you must NOT emit ORDER_READY for the same item again — no matter how the buyer phrases confirmation ("ok", "yes", "momo", "kasoa"). Instead reply about the existing order: confirm its details, answer their question, and tell them the seller will confirm it shortly. Only emit ORDER_READY when the buyer is ordering a DIFFERENT item (or the previous order is no longer pending — check the statuses).
 ORDER PLACEMENT — MANDATORY MECHANICS: when the buyer's last message gives ALL of item + quantity + delivery area + payment (or confirms them) AND no duplicate applies, you MUST append EXACTLY one last line to your reply:
 ORDER_READY: product_slug=<slug> | qty=<n> | variant=<text or "-"> | delivery=<text> | payment=<text> | price=<unit price agreed or "-">
-price is the UNIT price the buyer actually agreed to — when the buyer named a price (negotiation), use THEIR number, not the list price; "-" means book the catalog price. This line is a machine command — the order is ONLY created if the line is present, so NEVER omit it once the details are known, even if your visible text already says "confirmed". Write the friendly confirmation ("Order placed ✓ — 2× Samsung A05s on the way to Osu") and THEN the line. Never show the line to the buyer in words; never mention slugs or codes. If any detail is missing, ask for that one thing only — no line.
-If a product shows stock: 0, it is SOLD OUT — say so and offer an alternative instead of taking the order. Never promise more units than the stock shows; stock is tracked live and every order you place deducts it automatically. If the buyer is just chatting or asking, reply normally with NO ORDER_READY line.
+price is the UNIT price the buyer actually agreed to — when the buyer named a price (negotiation), use THEIR number, not the list price; "-" means book the catalog price. This line is a machine command — the proposal is ONLY created if the line is present, so NEVER omit it once the details are known, even if your visible text already sounds confirmed. Write the friendly summary ("Deal — 2× Samsung A05s for Osu, pay on delivery ✓") and THEN the line. Never show the line to the buyer in words; never mention slugs or codes. If any detail is missing, ask for that one thing only — no line. IMPORTANT: your proposal goes to the SELLER for confirmation first — the order only reaches the buyer's Orders after the seller confirms it, so your visible text should say the deal is noted and with the seller for confirmation (never "order placed" or "it's in your Orders").
+CANCELLATIONS: when the buyer asks to cancel an order that's still pending, you cancel it yourself — append EXACTLY one line to your reply:
+CANCEL_REQUEST: order_number=<order number from BUYER MEMORY, or "-">
+Your visible text confirms it plainly ("Done — order #X is cancelled for you"). For orders already paid you can't cancel: say "I've asked the seller to review your cancellation" and never claim it's done — the engine routes those to the seller.
+If a product shows stock: 0, it is SOLD OUT — say so and offer an alternative instead of taking the order. Never promise more units than the stock shows; stock is tracked live and every confirmed order deducts it automatically. If the buyer is just chatting or asking, reply normally with NO ORDER_READY line.
 CRITICAL: prices and stock only from the catalog (except a price the buyer themselves agreed to, which goes in ORDER_READY price=). If asked something you can't know (exact meetup point, custom requests), say the seller will confirm.`,
     messages: chat.map((m: any) => ({
       role: m.sender_id === conv.buyer_id ? "user" : "assistant",
@@ -169,9 +235,10 @@ CRITICAL: prices and stock only from the catalog (except a price the buyer thems
 
   let reply = result.text.trim();
   let orderNumber: string | null = null;
-  let systemCard: { body: string; metadata: any } | null = null;
+  let systemCards: { body: string; metadata: any }[] = [];
   const om = reply.match(/ORDER_READY:\s*product_slug=([^\s|]+)\s*\|\s*qty=(\d+)\s*\|\s*variant=([^|]*)\s*\|\s*delivery=([^|]*)\s*\|\s*payment=([^|]*)\s*(?:\|\s*price=([^|\s]*))?\s*$/);
-  reply = reply.replace(/ORDER_READY:[\s\S]*$/, "").trim();
+  const cm = reply.match(/CANCEL_REQUEST:\s*order_number=([^\s|]+)\s*$/);
+  reply = reply.replace(/ORDER_READY:[\s\S]*$/, "").replace(/CANCEL_REQUEST:[\s\S]*$/, "").trim();
   if (om) {
     // Duplicate guard (live-tested flaw): the buyer had already placed this
     // order from the "Place order" button, and ORDER_READY created a second
@@ -205,60 +272,97 @@ CRITICAL: prices and stock only from the catalog (except a price the buyer thems
             ? "pay_on_delivery"
             : null;
       const listPrice = Number(prod.base_price);
+      const floor = Number(prod.ai_min_price ?? 0);
       // Negotiated unit price: the AI may pass the price the buyer actually
       // agreed to ("price=500" on a GH₵67 listing). Bounded — wildly out of
-      // range (0, negative, >10× list) falls back to the list price and the
-      // seller still confirms the pending order in the dashboard.
+      // range (0, negative, >10× list) falls back to the list price. Below
+      // the seller's floor the prompt forbids the deal — if the model emits
+      // one anyway, clamp to the floor (the seller still confirms).
       const claimedPrice = om[6] && om[6].trim() !== "-" ? Number(om[6].replace(/[^0-9.]/g, "")) : NaN;
-      const unit = Number.isFinite(claimedPrice) && claimedPrice > 0 && claimedPrice <= listPrice * 10
+      let unit = Number.isFinite(claimedPrice) && claimedPrice > 0 && claimedPrice <= listPrice * 10
         ? claimedPrice
         : listPrice;
+      if (floor > 0 && unit < floor) unit = floor;
       const negotiated = unit !== listPrice;
       const total = Number((unit * qty).toFixed(2));
-      const { data: order, error: oErr } = await (supabase as any)
-        .from("orders")
-        .insert({
-          store_id: st.id,
-          buyer_id: conv.buyer_id,
-          status: "pending",
-          subtotal: total,
-          total,
-          currency: prod.currency ?? st.currency ?? "GHS",
-          source: "chat_ai",
-          fulfillment_type: deliveryArea ? "delivery" : "meet_in_person",
-          payment_term: paymentTerm,
-          notes: [variant ? `Variant: ${variant}` : null, deliveryArea ? `Delivery area: ${deliveryArea}` : null, negotiated ? `Negotiated unit price: ${prod.currency ?? "GHS"} ${unit} (list ${listPrice})` : null, "Placed by AI auto-pilot in chat"].filter(Boolean).join(" · "),
-        })
-        .select("id, order_number")
-        .single();
-      if (!oErr && order) {
-        orderNumber = (order as any).order_number;
-        await supabase.from("order_items").insert({
-          order_id: (order as any).id,
-          product_title: prod.title,
-          quantity: qty,
-          unit_price: unit,
-          total,
-          variant_title: variant,
+      // PROPOSAL, not an order — nothing lands in the buyer's Orders until
+      // the seller taps Confirm on the card in chat. The payload carries
+      // everything the confirm handler needs to create the real order.
+      systemCards.push({
+        body: `AI proposal — ${qty}× ${prod.title} @ ${prod.currency ?? "GHS"} ${unit}${variant ? ` · ${variant}` : ""}${deliveryArea ? ` · deliver to ${deliveryArea}` : ""}${paymentTerm ? ` · ${paymentTerm.replace(/_/g, " ")}` : ""}${negotiated ? " · negotiated" : ""}. Seller confirmation places this in the buyer's Orders.`,
+        metadata: { proposal: "order", ai: true, payload: { product_slug: prod.slug, product_title: prod.title, qty, variant, delivery: deliveryArea, payment: paymentTerm, unit_price: unit, total } },
+      });
+      const waDigits = String(st.whatsapp_number ?? "").replace(/\D/g, "");
+      const waText = `BASIC AI proposal needs your confirmation: ${qty}× ${prod.title} (${prod.currency ?? "GHS"} ${unit}${negotiated ? `, negotiated from ${listPrice}` : ""})${deliveryArea ? ` — deliver to ${deliveryArea}` : ""}${variant ? ` — ${variant}` : ""}. Buyer chat is in your dashboard.`;
+      // Best-effort: RLS may not let the buyer's session notify the seller —
+      // the unread counters + dashboard heartbeat cover that case anyway.
+      try {
+        await supabase.from("notifications").insert({
+          user_id: st.owner_id ?? conv.seller_id,
+          kind: "order",
+          title: "AI has an order proposal — confirm it",
+          body: `${qty}× ${prod.title} · ${prod.currency ?? "GHS"} ${unit}${deliveryArea ? ` · ${deliveryArea}` : ""}`,
+          payload: { wa_link: waDigits ? `https://wa.me/${waDigits}?text=${encodeURIComponent(waText)}` : null },
         });
-        // The card is posted AFTER the text reply (see delivery below) —
-        // hoisted here so the loser of an insert race never posts a card
-        // for an order it didn't win.
-        systemCard = {
-          body: `Order #${orderNumber} placed by AI auto-pilot — ${qty}× ${prod.title} · ${prod.currency ?? "GHS"} ${total}${deliveryArea ? ` · ${deliveryArea}` : ""}`,
-          metadata: { order_id: (order as any).id, ai: true },
-        };
-        const waDigits = String(st.whatsapp_number ?? "").replace(/\D/g, "");
-        const waText = `BASIC order needs your confirmation: #${orderNumber} — ${qty}× ${prod.title} (${prod.currency ?? "GHS"} ${total})${deliveryArea ? ` — deliver to ${deliveryArea}` : ""}${variant ? ` — ${variant}` : ""}. Buyer chat is in your dashboard.`;
-        // Best-effort: RLS may not let the buyer's session notify the seller —
-        // the unread counters + dashboard heartbeat cover that case anyway.
+      } catch {}
+    }
+  }
+  if (cm) {
+    // Cancellations — a PENDING order the AI cancels outright (nothing is
+    // captured yet and the buyer asked), prompting the seller with an
+    // informational card + notification. Paid orders go to the seller as a
+    // confirm-first proposal card. If the caller can't edit orders (the RPC
+    // path runs as the buyer), the pending cancel falls back to the proposal
+    // card so the request is never lost.
+    const wantNum = cm[1].trim().replace(/^#/, "");
+    const pendingTarget = wantNum && wantNum !== "-" ? pendingOrders.find((o) => o.order_number === wantNum) ?? null : openOrder ?? null;
+    const paidTarget = wantNum && wantNum !== "-"
+      ? orders.find((o) => ["paid", "fulfilled"].includes(o.status) && o.order_number === wantNum) ?? null
+      : null;
+    let cancelled = false;
+    if (pendingTarget) {
+      try {
+        const { error } = await supabase
+          .from("orders")
+          .update({ status: "cancelled" })
+          .eq("id", pendingTarget.id)
+          .eq("status", "pending");
+        if (error) console.error("[autopilot] auto-cancel failed:", error.message);
+        else cancelled = true;
+      } catch (e) {
+        console.error("[autopilot] auto-cancel threw:", e);
+      }
+    }
+    if (cancelled) {
+      systemCards.push({
+        body: `Order #${pendingTarget!.order_number} was cancelled automatically at the buyer's request.`,
+        metadata: { order_id: pendingTarget!.id, cancelled_by_ai: true },
+      });
+      try {
+        await supabase.from("notifications").insert({
+          user_id: st.owner_id ?? conv.seller_id,
+          kind: "order",
+          title: "Order cancelled by the AI",
+          body: `#${pendingTarget!.order_number} — the buyer asked to cancel and it was still pending`,
+          payload: { order_id: pendingTarget!.id },
+        });
+      } catch {}
+      // The reply was written for the confirm-first flow — make it match reality.
+      reply = reply.replace(/(I've asked the seller to confirm the cancellation[.!?]*|asked the seller to confirm[.!?]*)/gi, "Done — I've cancelled it for you ✓");
+    } else {
+      const target = pendingTarget ?? paidTarget;
+      if (target) {
+        systemCards.push({
+          body: `AI proposal — the buyer asks to cancel order #${target.order_number}. Confirming cancels it.`,
+          metadata: { proposal: "cancel", order_id: target.id, ai: true },
+        });
         try {
           await supabase.from("notifications").insert({
             user_id: st.owner_id ?? conv.seller_id,
             kind: "order",
-            title: "AI placed an order — confirm it",
-            body: `#${orderNumber} · ${qty}× ${prod.title} · ${prod.currency ?? "GHS"} ${total}${deliveryArea ? ` · ${deliveryArea}` : ""}`,
-            payload: { order_id: (order as any).id, order_number: orderNumber, wa_link: waDigits ? `https://wa.me/${waDigits}?text=${encodeURIComponent(waText)}` : null },
+            title: "AI cancellation proposal — confirm it",
+            body: `#${target.order_number} — the buyer asked to cancel`,
+            payload: { order_id: target.id },
           });
         } catch {}
       }
@@ -272,19 +376,19 @@ CRITICAL: prices and stock only from the catalog (except a price the buyer thems
   if (reply) {
     await postMessage({ kind: "text", body: reply, metadata: { ai: true } });
   }
-  // The order card goes out as a null-sender message via a plain insert —
-  // messages RLS allows any participant to post sender_id NULL, it renders
-  // as the centered gold card for both sides, and it doesn't consume the
+  // Proposal cards go out as null-sender messages via plain inserts —
+  // messages RLS allows any participant to post sender_id NULL, they render
+  // as the centered gold card for both sides, and they don't consume the
   // RPC's one-reply-per-buyer-message slot.
-  if (systemCard) {
+  for (const card of systemCards) {
     const { error: cardErr } = await supabase.from("messages").insert({
       conversation_id: conversationId,
       sender_id: null,
       kind: "system_order",
-      body: systemCard.body,
-      metadata: systemCard.metadata,
+      body: card.body,
+      metadata: card.metadata,
     });
-    if (cardErr) console.error("[autopilot] order card insert failed:", cardErr.message);
+    if (cardErr) console.error("[autopilot] proposal card insert failed:", cardErr.message);
   }
   return { reply, order_number: orderNumber };
 
