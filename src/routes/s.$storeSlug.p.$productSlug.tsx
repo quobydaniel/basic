@@ -2,7 +2,7 @@ import { createFileRoute, Link, notFound, useNavigate, useRouter } from "@tansta
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, Share2, ShieldCheck, MessageCircle, MapPin, Star, Sparkles, Loader2, Store } from "lucide-react";
+import { ArrowLeft, Share2, ShieldCheck, MessageCircle, MapPin, Star, Sparkles, Loader2, Store, Lock } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import { ProductGallery } from "@/components/ProductGallery";
@@ -133,13 +133,27 @@ function ProductPage() {
     enabled: !!user && !data.isLoading,
     queryFn: async () => {
       const variantIds = (data.data?.product.product_variants ?? []).map((v: any) => v.id);
-      if (variantIds.length === 0) return false;
-      const { data: rows } = await supabase
+      const title = data.data?.product.title as string | undefined;
+      if (!variantIds.length && !title) return false;
+      // order_items carries no product_id — match by variant, falling back to
+      // the engine's title-only lines (variant_id is nullable). Cancelled
+      // orders were never purchases.
+      let q = supabase
         .from("order_items")
         .select("id, order:orders!inner(buyer_id, status)")
-        .in("variant_id", variantIds)
         .eq("order.buyer_id", user!.id)
+        .neq("order.status", "cancelled")
         .limit(1);
+      const titleClause = title ? `product_title.eq."${title.replaceAll('"', "")}"` : null;
+      if (variantIds.length) {
+        q = titleClause
+          ? q.or(`variant_id.in.(${variantIds.join(",")}),${titleClause}`)
+          : q.in("variant_id", variantIds);
+      } else if (title) {
+        q = q.eq("product_title", title);
+      }
+      const { data: rows, error } = await q;
+      if (error) throw error;
       return (rows ?? []).length > 0;
     },
   });
@@ -434,8 +448,8 @@ function ProductPage() {
               )}
             </div>
 
-            {/* My review form */}
-            {user && (
+            {/* My review form — buyers only; everyone else gets a lock note */}
+            {user && hasPurchased.data && (
               <div className="mt-4 rounded-2xl border border-border bg-card p-4">
                 <p className="text-sm font-medium">{myReview.data ? "Update your review" : "Write a review"}</p>
                 {hasPurchased.data && (
@@ -478,6 +492,14 @@ function ProductPage() {
                 >
                   {reviewBusy ? "Saving…" : myReview.data ? "Update review" : "Post review"}
                 </button>
+              </div>
+            )}
+            {user && hasPurchased.data === false && (
+              <div className="mt-4 flex items-start gap-3 rounded-2xl border border-dashed border-border bg-muted/40 p-4">
+                <Lock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  Reviews are for buyers — purchase this piece and the review box unlocks here.
+                </p>
               </div>
             )}
             {!user && (
