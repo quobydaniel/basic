@@ -93,8 +93,12 @@ export function Reveal({
       ref={ref}
       className={cn(className)}
       style={{
+        // Longhands only — mixing the `transition` shorthand with
+        // transitionDelay here made React warn on every card reveal.
+        transitionProperty: "opacity, transform",
+        transitionDuration: "320ms",
+        transitionTimingFunction: "ease",
         transitionDelay: `${delay}ms`,
-        transition: "opacity 320ms ease, transform 320ms ease",
         opacity: shown ? 1 : 0.001,
         transform: shown ? "translate3d(0,0,0)" : "translate3d(0, 12px, 0)",
       }}
