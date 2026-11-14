@@ -123,10 +123,14 @@ function StorefrontPage() {
     queryKey: ["store-sold", store.data?.id],
     enabled: !!store.data?.id,
     queryFn: async () => {
+      // order_items has no product FK — scope through the order instead.
+      // Variant-less AI-created items count too; unpaid/cancelled orders don't.
+      // (orders.status is the order_status enum — "placed" isn't a value.)
       const { data, error } = await (supabase
         .from("order_items" as any)
-        .select("quantity, products!inner(store_id)")
-        .eq("products.store_id", store.data!.id) as any);
+        .select("quantity, orders!inner(store_id, status)")
+        .eq("orders.store_id", store.data!.id)
+        .in("orders.status", ["paid", "fulfilled", "shipped", "delivered"] as never[]) as any);
       if (error) return 0;
       return ((data ?? []) as any[]).reduce((s, r) => s + Number(r.quantity ?? 0), 0);
     },
@@ -136,15 +140,29 @@ function StorefrontPage() {
     queryKey: ["store-reviews", store.data?.id],
     enabled: !!store.data?.id,
     queryFn: async () => {
+      // No `buyer:profiles` embed — that FK doesn't exist in the schema and
+      // the embed 400'd every review query (reviews never rendered). Names
+      // come from a batched follow-up lookup instead; when profiles are
+      // RLS-hidden from the viewer it returns empty → "Verified buyer".
       const { data, error } = await (supabase
         .from("reviews")
-        .select("id, rating, body, created_at, product_id, products!inner(title, store_id), buyer:profiles(full_name)")
+        .select("id, rating, body, created_at, product_id, buyer_id, products!inner(title, store_id)")
         .eq("products.store_id", store.data!.id)
         .eq("approved", true)
         .order("created_at", { ascending: false })
         .limit(30) as any);
       if (error) throw error;
-      return ((data ?? []) as any[]) as ReviewRow[];
+      const rows = ((data ?? []) as any[]).map((r) => ({ ...r, buyer: null as { full_name: string | null } | null }));
+      const ids = [...new Set(rows.map((r) => r.buyer_id).filter(Boolean))] as string[];
+      if (ids.length) {
+        const { data: profs } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", ids);
+        const names = new Map((profs ?? []).map((p: { id: string; full_name: string | null }) => [p.id, p.full_name]));
+        for (const r of rows) r.buyer = { full_name: names.get(r.buyer_id) ?? null };
+      }
+      return rows as ReviewRow[];
     },
   });
 
@@ -203,7 +221,14 @@ function StorefrontPage() {
       {/* Hero */}
       <section className="relative">
         <div className="relative h-40 w-full overflow-hidden md:h-56">
-          {s.banner_url && <img src={s.banner_url} alt="" className="h-full w-full object-cover" />}
+          {s.banner_url && (
+            <img
+              src={s.banner_url}
+              alt=""
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+              className="h-full w-full object-cover"
+            />
+          )}
           <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent" />
         </div>
         <div className="relative z-10 mx-auto -mt-16 max-w-6xl px-4 md:px-8">

@@ -193,13 +193,16 @@ function StoreOverview({ store }: { store: any }) {
     queryFn: async () => {
       const { data } = await supabase
         .from("order_items")
-        .select("quantity, unit_price, product_id, products!inner(title, store_id)")
-        .eq("products.store_id", store.id)
+        .select("quantity, unit_price, product_title, orders!inner(store_id, status)")
+        .eq("orders.store_id", store.id)
+        .in("orders.status", ["paid", "fulfilled", "shipped", "delivered"] as never[])
         .limit(500);
+      // Group by the stored product_title — order_items carries no product FK
+      // (the old products!inner embed 400'd and the widget silently stayed empty).
       const map = new Map<string, { title: string; qty: number; revenue: number }>();
       (data ?? []).forEach((r: any) => {
-        const key = r.product_id;
-        const cur = map.get(key) ?? { title: r.products?.title ?? "Product", qty: 0, revenue: 0 };
+        const key = r.product_title ?? "Product";
+        const cur = map.get(key) ?? { title: key, qty: 0, revenue: 0 };
         cur.qty += Number(r.quantity ?? 0);
         cur.revenue += Number(r.quantity ?? 0) * Number(r.unit_price ?? 0);
         map.set(key, cur);

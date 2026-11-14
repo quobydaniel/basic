@@ -1,13 +1,13 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState, useDeferredValue } from "react";
+import { useState, useEffect, useDeferredValue } from "react";
 import { Search, SlidersHorizontal } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
 import { ProductCardTile } from "./index";
 import { useBuyerLocation } from "@/lib/buyer-location";
 import { LocationPicker } from "@/components/LocationPicker";
-import { useCategoryStats, rollupCount } from "@/lib/category-stats";
+import { useInfiniteProducts } from "@/lib/use-infinite-products";
 import { z } from "zod";
 
 const searchSchema = z.object({
@@ -15,6 +15,7 @@ const searchSchema = z.object({
   category: z.string().optional(),
   min: z.number().optional(),
   max: z.number().optional(),
+  sort: z.enum(["new", "price-asc", "price-desc"]).optional(),
 });
 
 export const Route = createFileRoute("/discover")({
@@ -30,6 +31,12 @@ export const Route = createFileRoute("/discover")({
 
 type Cat = { id: string; slug: string; name: string; parent_id: string | null };
 
+const SORTS = [
+  { value: "new", label: "Newest" },
+  { value: "price-asc", label: "Price ↑" },
+  { value: "price-desc", label: "Price ↓" },
+] as const;
+
 function Discover() {
   const search = Route.useSearch();
   const navigate = useNavigate();
@@ -40,6 +47,7 @@ function Discover() {
   const [maxPrice, setMaxPrice] = useState<string>(search.max != null ? String(search.max) : "");
   const { location: buyerLoc } = useBuyerLocation();
   const activeCat = search.category;
+  const sort = search.sort ?? "new";
 
   const cats = useQuery({
     queryKey: ["cats"],
@@ -53,10 +61,14 @@ function Discover() {
   const activeCatObj = cats.data?.find((c) => c.slug === activeCat);
   const subcats = activeCatObj ? (cats.data ?? []).filter((c) => c.parent_id === activeCatObj.id) : [];
 
-  const products = useQuery({
-    queryKey: ["discover", deferredQ, activeCat, search.min, search.max, buyerLoc],
-    queryFn: async () => {
-      // Resolve category filter: include the category's sub-cats
+  // Store-id scope for the location cascade — computed once, reused by every
+  // page of the infinite list (kept out of queryFn so pagination stays cheap).
+  const storeScope = useStoreScope(buyerLoc);
+
+  const products = useInfiniteProducts({
+    key: ["discover", deferredQ, activeCat, search.min, search.max, sort, storeScope],
+    enabled: true,
+    applyFilters: (query) => {
       let categoryIds: string[] = [];
       if (activeCat) {
         const cat = cats.data?.find((c) => c.slug === activeCat);
@@ -65,43 +77,18 @@ function Discover() {
           categoryIds = [cat.id, ...kids.map((k) => k.id)];
         }
       }
-      // Location filter with cascade fallback: area → city → region → all.
-      // A too-specific pick degrades to the wider level; if NO seller has a
-      // matching location, show everything rather than an empty marketplace.
-      let storeIds: string[] | null = null;
-      let locFallback = false;
-      if (buyerLoc) {
-        const tryLevels: Array<Record<string, string>> = [];
-        if (buyerLoc.area && buyerLoc.city) tryLevels.push({ area: buyerLoc.area, city: buyerLoc.city });
-        if (buyerLoc.city) tryLevels.push({ city: buyerLoc.city });
-        if (buyerLoc.region) tryLevels.push({ region: buyerLoc.region });
-        for (const level of tryLevels) {
-          let loc = supabase.from("stores").select("id").eq("status", "active");
-          for (const [k, v] of Object.entries(level)) loc = loc.eq(k, v);
-          const { data: sids } = await loc;
-          storeIds = (sids ?? []).map((s: { id: string }) => s.id);
-          if (storeIds.length > 0) break;
-        }
-        if (!storeIds || storeIds.length === 0) {
-          storeIds = null; // no location-tagged sellers — browse all of Ghana
-          locFallback = true;
-        }
-      }
-
-      let query = supabase
-        .from("products")
-        .select("id, slug, title, base_price, currency, category_id, store:stores(slug, name, area, city), product_media(url)")
-        .eq("status", "active");
-      if (deferredQ) query = query.ilike("title", `%${deferredQ}%`);
-      if (categoryIds.length) query = query.in("category_id", categoryIds);
-      if (search.min != null) query = query.gte("base_price", search.min);
-      if (search.max != null) query = query.lte("base_price", search.max);
-      if (storeIds) query = query.in("store_id", storeIds);
-      const { data, error } = await query.limit(48);
-      if (error) throw error;
-      return { rows: data ?? [], locFallback };
+      let next = query;
+      if (deferredQ) next = next.ilike("title", `%${deferredQ}%`);
+      if (categoryIds.length) next = next.in("category_id", categoryIds);
+      if (search.min != null) next = next.gte("base_price", search.min);
+      if (search.max != null) next = next.lte("base_price", search.max);
+      // null scope = browse all of Ghana; empty array = nothing matches location
+      if (storeScope) next = next.in("store_id", storeScope);
+      next = next.order("created_at", { ascending: false });
+      if (sort === "price-asc") next = next.order("base_price", { ascending: true });
+      else if (sort === "price-desc") next = next.order("base_price", { ascending: false });
+      return next;
     },
-    enabled: !activeCat || (cats.data?.length ?? 0) > 0,
   });
 
   function applyPrice() {
@@ -112,6 +99,20 @@ function Discover() {
         ...(activeCat ? { category: activeCat } : {}),
         ...(minPrice ? { min: Number(minPrice) } : {}),
         ...(maxPrice ? { max: Number(maxPrice) } : {}),
+        ...(sort !== "new" ? { sort } : {}),
+      },
+    });
+  }
+
+  function setSort(next: "new" | "price-asc" | "price-desc") {
+    navigate({
+      to: "/discover",
+      search: {
+        ...(deferredQ ? { q: deferredQ } : {}),
+        ...(activeCat ? { category: activeCat } : {}),
+        ...(search.min != null ? { min: search.min } : {}),
+        ...(search.max != null ? { max: search.max } : {}),
+        ...(next !== "new" ? { sort: next } : {}),
       },
     });
   }
@@ -181,9 +182,9 @@ function Discover() {
         )}
 
         <div className="no-scrollbar mt-4 flex gap-2 overflow-x-auto">
-          <FilterPill to="/discover" search={{ q: deferredQ || undefined }} active={!activeCat}>All</FilterPill>
+          <FilterPill to="/discover" search={{ q: deferredQ || undefined, ...(sort !== "new" ? { sort } : {}) }} active={!activeCat}>All</FilterPill>
           {cats.data?.filter((c) => !c.parent_id).map((c) => (
-            <FilterPill key={c.id} to="/discover" search={{ category: c.slug, q: deferredQ || undefined }} active={activeCat === c.slug}>
+            <FilterPill key={c.id} to="/discover" search={{ category: c.slug, q: deferredQ || undefined, ...(sort !== "new" ? { sort } : {}) }} active={activeCat === c.slug}>
               {c.name}
             </FilterPill>
           ))}
@@ -192,35 +193,108 @@ function Discover() {
         {subcats.length > 0 && (
           <div className="no-scrollbar mt-2 flex gap-2 overflow-x-auto">
             {subcats.map((c) => (
-              <FilterPill key={c.id} to="/discover" search={{ category: c.slug, q: deferredQ || undefined }} active={activeCat === c.slug}>
+              <FilterPill key={c.id} to="/discover" search={{ category: c.slug, q: deferredQ || undefined, ...(sort !== "new" ? { sort } : {}) }} active={activeCat === c.slug}>
                 {c.name}
               </FilterPill>
             ))}
           </div>
         )}
+
+        {/* Sort — Jiji/Temu-style ordering, native select so mobile opens the picker */}
+        <div className="mt-3 flex items-center gap-2">
+          <label className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground">
+            Sort
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as "new" | "price-asc" | "price-desc")}
+              className="bg-transparent text-xs font-semibold text-foreground outline-none"
+            >
+              {SORTS.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+          </label>
+          {products.total > 0 && (
+            <span className="text-xs text-muted-foreground">{products.total.toLocaleString()} item{products.total === 1 ? "" : "s"}</span>
+          )}
+        </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-3 px-4 md:grid-cols-4 md:gap-5 md:px-8">
-        {products.isLoading &&
+      <div className="mt-4 grid grid-cols-2 gap-3 px-4 pb-6 md:grid-cols-4 md:gap-5 md:px-8">
+        {products.loading &&
           Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="aspect-[4/5] animate-pulse rounded-2xl bg-muted" />
           ))}
-        {((products.data as any)?.rows ?? []).map((p: any) => (
+        {products.rows.map((p) => (
           <ProductCardTile key={p.id} p={p} />
         ))}
-        {!products.isLoading && ((products.data as any)?.rows?.length ?? 0) === 0 && (
+        {!products.loading && products.rows.length === 0 && (
           <p className="col-span-full py-12 text-center text-sm text-muted-foreground">
             Nothing here yet. Try widening your filters or location.
           </p>
         )}
-        {!products.isLoading && (products.data as any)?.locFallback && (
-          <p className="col-span-full pb-2 text-center text-xs text-muted-foreground md:col-span-4">
+        {!products.loading && buyerLoc && storeScope === null && (
+          <p className="col-span-full pb-2 text-center text-xs text-muted-foreground">
             No sellers in {buyerLoc ? [buyerLoc.area, buyerLoc.city].filter(Boolean).join(", ") : "your area"} yet — showing all of Ghana.
+          </p>
+        )}
+        {/* Infinite scroll sentinel — prefetches 600px before the end */}
+        {products.hasMore && !products.loading && (
+          <div ref={products.sentinelRef} className="col-span-full flex items-center justify-center py-6">
+            {products.appending ? (
+              <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Loading more…</span>
+            ) : (
+              <button
+                onClick={() => void products.loadMore()}
+                className="rounded-full border border-border px-5 py-2 text-xs font-semibold text-muted-foreground hover:border-gold/60 hover:text-gold"
+              >
+                Load more
+              </button>
+            )}
+          </div>
+        )}
+        {!products.hasMore && products.rows.length > 0 && (
+          <p className="col-span-full py-5 text-center text-[11px] uppercase tracking-[0.2em] text-muted-foreground/70">
+            You've seen it all — {products.rows.length} item{products.rows.length === 1 ? "" : "s"}
           </p>
         )}
       </div>
     </AppShell>
   );
+}
+
+/* Store-id scope for the buyer's location, with cascade fallback
+   (area → city → region → all Ghana). Null scope = "everywhere": the
+   listing query simply skips the IN filter. */
+function useStoreScope(buyerLoc: { area?: string | null; city?: string | null; region?: string | null } | null): string[] | null {
+  const [scope, setScope] = useState<string[] | null>(null);
+  const locKey = buyerLoc ? `${buyerLoc.area ?? ""}|${buyerLoc.city ?? ""}|${buyerLoc.region ?? ""}` : "";
+  useEffect(() => {
+    setScope(null);
+    if (!buyerLoc) return;
+    let dead = false;
+    (async () => {
+      const tryLevels: Array<Record<string, string>> = [];
+      if (buyerLoc.area && buyerLoc.city) tryLevels.push({ area: buyerLoc.area, city: buyerLoc.city });
+      if (buyerLoc.city) tryLevels.push({ city: buyerLoc.city });
+      if (buyerLoc.region) tryLevels.push({ region: buyerLoc.region });
+      for (const level of tryLevels) {
+        let loc = supabase.from("stores").select("id").eq("status", "active");
+        for (const [k, v] of Object.entries(level)) loc = loc.eq(k, v);
+        const { data: sids } = await loc;
+        const ids = (sids ?? []).map((s: { id: string }) => s.id);
+        if (ids.length > 0) {
+          if (!dead) setScope(ids);
+          return;
+        }
+      }
+      if (!dead) setScope(null); // no location-tagged sellers — browse all of Ghana
+    })();
+    return () => {
+      dead = true;
+    };
+  }, [locKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  return scope;
 }
 
 function FilterPill({ to, search, active, children }: any) {

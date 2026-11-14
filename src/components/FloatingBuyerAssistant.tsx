@@ -224,11 +224,20 @@ export function FloatingBuyerAssistant({ productId, context = "home" }: { produc
     return () => window.removeEventListener("basic:assistant:open", openAssistant);
   }, []);
 
-  // Teaser bubble: appears after a short settle, resets per page context
+  // Teaser bubble: appears after a short settle, resets per page context.
+  // Auto-dismisses ~5s after appearing — it must never park itself on top of
+  // page controls (it used to cover variant buttons and order cards).
   useEffect(() => {
     setShowTeaser(false);
-    const t = setTimeout(() => setShowTeaser(true), 2200);
-    return () => clearTimeout(t);
+    let hide: ReturnType<typeof setTimeout> | undefined;
+    const show = setTimeout(() => {
+      setShowTeaser(true);
+      hide = setTimeout(() => setShowTeaser(false), 5000);
+    }, 2200);
+    return () => {
+      clearTimeout(show);
+      if (hide) clearTimeout(hide);
+    };
   }, [context]);
 
   useEffect(() => {
@@ -271,9 +280,9 @@ export function FloatingBuyerAssistant({ productId, context = "home" }: { produc
           className="fixed bottom-[8.75rem] right-[4.25rem] z-40 md:bottom-[6.75rem]"
           style={{ marginBottom: "env(safe-area-inset-bottom)" }}
         >
-          <div className="relative flex items-center gap-1 rounded-2xl rounded-br-sm border border-border bg-card px-3.5 py-2.5 shadow-[var(--shadow-soft)]">
+          <div className="relative flex max-w-[min(260px,calc(100vw-6rem))] items-center gap-1 rounded-2xl rounded-br-sm border border-border bg-card px-3.5 py-2.5 shadow-[var(--shadow-soft)]">
             <Sparkles className="h-3.5 w-3.5 shrink-0 text-[var(--gold)]" />
-            <span className="text-xs font-medium">{meta.teaser}</span>
+            <span className="text-xs font-medium leading-snug">{meta.teaser}</span>
             <button
               aria-label="Dismiss"
               onClick={() => setShowTeaser(false)}

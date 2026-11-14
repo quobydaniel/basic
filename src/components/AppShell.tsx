@@ -35,6 +35,10 @@ export function AppShell({
   // Chat is an app-like surface: full-height messenger, no footer and no
   // bottom tab bar — the conversation list is the navigation there.
   const isChat = pathname.startsWith("/chat");
+  // Product detail is the same kind of surface on mobile: the sticky buy bar
+  // replaces the tab bar (Temu-style) and the back arrow replaces breadcrumbs.
+  const isProductDetail = /^\/s\/[^/]+\/p\/.+/.test(pathname);
+  const appSurface = isChat || isProductDetail;
   const showAssistant =
     !pathname.startsWith("/chat") && !pathname.startsWith("/account");
   const context: "home" | "discover" | "product" | "orders" | "favorites" =
@@ -48,8 +52,8 @@ export function AppShell({
     <div className="min-h-screen bg-background text-foreground">
       <TopBar />
       <main className={`mx-auto max-w-2xl md:max-w-6xl ${isChat ? "pb-0" : "pb-28 md:pb-16"}`}>{children}</main>
-      {!isChat && !noFooter && <SiteFooter />}
-      {!isChat && <BottomTabBar />}
+      {!appSurface && !noFooter && <SiteFooter />}
+      {!appSurface && <BottomTabBar />}
       {showAssistant && <FloatingBuyerAssistant productId={productId} context={context} />}
     </div>
   );

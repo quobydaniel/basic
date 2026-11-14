@@ -39,7 +39,10 @@ function useSellerSuggestions(open: boolean) {
             .from("orders")
             .select("id", { count: "exact", head: true })
             .in("store_id", storeIds)
-            .eq("status", "placed"),
+            // order_status enum: pending = awaiting payment (the tracker's
+            // "Placed" step). "placed" is not an enum value — the query
+            // errored 22P02 and pending orders never surfaced in chips.
+            .eq("status", "pending"),
           supabase
             .from("products")
             .select("title, product_variants(inventory_qty)")

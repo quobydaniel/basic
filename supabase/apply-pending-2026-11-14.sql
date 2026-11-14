@@ -769,3 +769,30 @@ ALTER TABLE public.stores
   ADD COLUMN IF NOT EXISTS kyc_verified BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS kyc_submitted_at TIMESTAMPTZ;
 
+
+
+-- ============================================================
+-- 20261114120000_profiles_public_names.sql  (added 2026-11-14)
+-- ============================================================
+-- Review author names on storefronts. `reviews` has NO foreign key to
+-- `profiles`, so the `buyer:profiles(full_name)` embed 400'd and reviews
+-- never rendered. The UI now looks names up by id — this grant makes the
+-- lookup work for signed-out visitors.
+--
+-- Column-scoped on purpose: `phone` and anything else sensitive stay
+-- hidden. anon gains read access to id / full_name / avatar_url ONLY.
+GRANT SELECT (id, full_name, avatar_url) ON TABLE public.profiles TO anon;
+
+-- Row visibility for signed-out visitors (existing authenticated policies
+-- are untouched — permissive policies OR together).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'profiles'
+      AND policy_name = 'profiles_basic_names_public'
+  ) THEN
+    CREATE POLICY profiles_basic_names_public ON public.profiles
+      FOR SELECT TO anon USING (true);
+  END IF;
+END $$;

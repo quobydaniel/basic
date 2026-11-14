@@ -55,8 +55,10 @@ export function Parallax({
 }
 
 /**
- * Reveal — weighted entrance: content rises, fades, and comes into
- * focus (blur → sharp) like a lens settling in low light.
+ * Reveal — light fade-and-rise on first scroll into view. Deliberately
+ * subtle: marketplaces live and die on how fast content reads, so no blur
+ * and no long travel (the old 6px blur + 28px rise read as "blank page" on
+ * slow devices and in full-page captures).
  */
 export function Reveal({
   delay = 0,
@@ -80,7 +82,7 @@ export function Reveal({
           io.disconnect();
         }
       },
-      { threshold: 0.1, rootMargin: "0px 0px -10% 0px" },
+      { threshold: 0.05, rootMargin: "0px 0px -5% 0px" },
     );
     io.observe(el);
     return () => io.disconnect();
@@ -89,12 +91,12 @@ export function Reveal({
   return (
     <div
       ref={ref}
-      className={cn("reveal-blur", className)}
+      className={cn(className)}
       style={{
         transitionDelay: `${delay}ms`,
-        opacity: shown ? 1 : 0,
-        transform: shown ? "translate3d(0,0,0)" : "translate3d(0, 28px, 0)",
-        filter: shown ? "blur(0px)" : "blur(6px)",
+        transition: "opacity 320ms ease, transform 320ms ease",
+        opacity: shown ? 1 : 0.001,
+        transform: shown ? "translate3d(0,0,0)" : "translate3d(0, 12px, 0)",
       }}
     >
       {children}

@@ -1,8 +1,8 @@
-import { createFileRoute, Link, notFound, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, notFound, useNavigate, useRouter } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Share2, ShieldCheck, MessageCircle, MapPin, Star, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, Share2, ShieldCheck, MessageCircle, MapPin, Star, Sparkles, Loader2 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import { ProductGallery } from "@/components/ProductGallery";
@@ -29,6 +29,7 @@ function ProductPage() {
   const [briefBusy, setBriefBusy] = useState(false);
   const briefFn = useServerFn(productBrief);
   const navigate = useNavigate();
+  const router = useRouter();
   const { user } = useSession();
   const qc = useQueryClient();
 
@@ -155,6 +156,7 @@ function ProductPage() {
     : Number((product as any).inventory_qty ?? 10);
   const stockBadge =
     stockQty === 0 ? "Sold out" : stockQty <= 5 ? `Only ${stockQty} left` : null;
+  const negotiable = !!(product as any).negotiable;
 
   const locationLabel = [store.area, store.city || store.region].filter(Boolean).join(" · ");
   const waNumber = store.whatsapp_number ? store.whatsapp_number.replace(/\D/g, "") : null;
@@ -231,6 +233,18 @@ function ProductPage() {
     <AppShell productId={product.id}>
       <div className="md:grid md:grid-cols-2 md:gap-10 md:px-8 md:pt-6">
         <section className="relative">
+          {/* Back — Jiji/Temu keep an exit arrow on the ad page; browser back
+              on the first entry falls back to the storefront. */}
+          <button
+            onClick={() => {
+              if (window.history.length > 1) router.history.back();
+              else navigate({ to: "/s/$storeSlug", params: { storeSlug } });
+            }}
+            aria-label="Back"
+            className="absolute left-3 top-3 z-20 grid h-9 w-9 place-items-center rounded-full border border-border/60 bg-background/80 text-foreground shadow-md backdrop-blur transition hover:bg-accent"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
           <ProductGallery media={media} title={product.title} />
           {stockBadge && (
             <span
@@ -479,23 +493,30 @@ function ProductPage() {
             </div>
           </div>
 
-          {/* Similar products — mobile: below the details, above More-from */}
+          {/* Mobile: ONE merged "You might also like" grid (was three
+              overlapping sections showing the same products twice). */}
           {((related.data ?? []).length > 0 || (moreFromStore.data ?? []).length > 0) && (
             <div className="mt-8 border-t border-border pt-6 md:hidden">
               <p className="mb-3 flex items-center gap-2.5 text-[10px] font-semibold uppercase tracking-[0.34em] text-muted-foreground">
                 <span className="h-px w-6 bg-gold/60" aria-hidden /> You might also like
               </p>
               <div className="grid grid-cols-2 gap-3">
-                {(related.data?.length ? related.data! : moreFromStore.data!).slice(0, 8).map((p: any) => (
-                  <ProductCardTile key={p.id} p={p} />
-                ))}
+                {(() => {
+                  const seen = new Set<string>();
+                  const merged = [...(related.data ?? []), ...(moreFromStore.data ?? [])].filter((p: any) => {
+                    if (seen.has(p.id)) return false;
+                    seen.add(p.id);
+                    return true;
+                  });
+                  return merged.slice(0, 8).map((p: any) => <ProductCardTile key={p.id} p={p} />);
+                })()}
               </div>
             </div>
           )}
 
-          {/* More from this store */}
+          {/* More from this store — desktop rail */}
           {(moreFromStore.data ?? []).length > 0 && (
-            <div className="mt-8 border-t border-border pt-6">
+            <div className="mt-8 hidden border-t border-border pt-6 md:block">
               <h2 className="font-display text-xl">More from {store.name}</h2>
               <div className="no-scrollbar mt-3 flex gap-3 overflow-x-auto pb-2">
                 {moreFromStore.data!.map((p: any) => (
@@ -505,9 +526,9 @@ function ProductPage() {
             </div>
           )}
 
-          {/* Related in category */}
+          {/* Related in category — desktop rail */}
           {(related.data ?? []).length > 0 && (
-            <div className="mt-8 border-t border-border pt-6">
+            <div className="mt-8 hidden border-t border-border pt-6 md:block">
               <h2 className="font-display text-xl">You may also like</h2>
               <div className="no-scrollbar mt-3 flex gap-3 overflow-x-auto pb-2">
                 {related.data!.map((p: any) => (
@@ -517,6 +538,55 @@ function ProductPage() {
             </div>
           )}
         </section>
+      </div>
+
+      {/* Sticky buy bar — mobile only (Temu-style: price + primary action are
+          always one thumb-reach away, no matter how far you've scrolled).
+          Sits in the band vacated by the bottom tab bar. */}
+      <div
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 backdrop-blur-lg md:hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
+        <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-2.5">
+          <div className="min-w-0">
+            <p className="truncate text-[13px] font-semibold text-foreground">
+              {negotiable ? "Chat for price" : formatGHS(price, { currency: product.currency })}
+            </p>
+            <p className="truncate text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+              {stockQty === 0 ? "Sold out" : stockBadge ?? "In stock"}
+            </p>
+          </div>
+          {waNumber && (
+            <a
+              href={`https://wa.me/${waNumber}?text=${waText}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Chat on WhatsApp"
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-emerald-600/50 text-emerald-500"
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current" aria-hidden>
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+              </svg>
+            </a>
+          )}
+          {isOwnListing ? (
+            <Link
+              to="/dashboard/products"
+              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-full border border-border text-sm font-semibold text-foreground"
+            >
+              Your listing — manage
+            </Link>
+          ) : (
+            <button
+              onClick={messageSeller}
+              disabled={msgBusy || stockQty === 0}
+              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-full bg-primary text-sm font-semibold text-primary-foreground shadow-[0_8px_24px_-8px_color-mix(in_oklab,var(--primary)_60%,transparent)] disabled:opacity-50"
+            >
+              {msgBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
+              {stockQty === 0 ? "Sold out" : "Chat to buy"}
+            </button>
+          )}
+        </div>
       </div>
     </AppShell>
   );

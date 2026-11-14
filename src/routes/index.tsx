@@ -7,6 +7,7 @@ import { FavoriteButton } from "@/components/FavoriteButton";
 import { Parallax, Reveal } from "@/components/motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useBuyerLocation } from "@/lib/buyer-location";
+import { useInfiniteProducts } from "@/lib/use-infinite-products";
 import { formatGHS } from "@/lib/format";
 
 export const Route = createFileRoute("/")({
@@ -157,27 +158,27 @@ function MarketplaceHome() {
             </Parallax>
           </div>
 
-          <div className="relative flex flex-col items-center gap-10 px-6 py-14 text-center md:px-12 md:py-20">
+          <div className="relative flex flex-col items-center gap-10 px-6 py-8 text-center md:px-12 md:py-20">
             <Parallax speed={0.03} className="max-w-2xl">
-              <p className="mb-5 flex items-center justify-center gap-4 text-[10px] font-semibold uppercase tracking-[0.42em] text-muted-foreground">
+              <p className="mb-3 flex items-center justify-center gap-4 text-[10px] font-semibold uppercase tracking-[0.42em] text-muted-foreground md:mb-5">
                 <span className="h-px w-10 bg-gradient-to-r from-transparent to-gold/70" />
                 Ghana-powered commerce
                 <span className="h-px w-10 bg-gradient-to-l from-transparent to-gold/70" />
               </p>
-              <h1 className="font-display text-5xl leading-[1.05] md:text-7xl">
+              <h1 className="font-display text-4xl leading-[1.08] md:text-7xl md:leading-[1.05]">
                 Selling made simple.
                 <br />
                 Shopping made <span className="gold-text italic">golden</span>.
               </h1>
-              <p className="mx-auto mt-6 max-w-md text-[15px] leading-relaxed text-muted-foreground">
+              <p className="mx-auto mt-4 max-w-md text-[14px] leading-relaxed text-muted-foreground md:mt-6 md:text-[15px]">
                 Sellers open a storefront in minutes and reach buyers in every
                 region. Buyers shop thousands of Ghana-made finds — pay with
                 Mobile Money or card, delivered to your door.
               </p>
-              <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-3 md:mt-9 md:gap-4">
                 <Link
                   to="/discover"
-                  className="group inline-flex items-center gap-2.5 rounded-full bg-gold px-7 py-3 text-[12px] font-bold uppercase tracking-[0.22em] text-gold-foreground transition-all duration-300 hover:shadow-[0_0_36px_-6px_var(--gold)]"
+                  className="group inline-flex items-center gap-2.5 rounded-full bg-gold px-6 py-2.5 text-[12px] font-bold uppercase tracking-[0.22em] text-gold-foreground transition-all duration-300 hover:shadow-[0_0_36px_-6px_var(--gold)] md:px-7 md:py-3"
                 >
                   Start shopping
                   <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" strokeWidth={2.2} />
@@ -185,7 +186,7 @@ function MarketplaceHome() {
                 <Link
                   to="/auth"
                   search={{ mode: "sell" as const }}
-                  className="inline-flex items-center gap-2.5 rounded-full border border-border px-7 py-3 text-[12px] font-semibold uppercase tracking-[0.22em] text-foreground/90 transition-colors duration-300 hover:border-gold hover:text-gold"
+                  className="inline-flex items-center gap-2.5 rounded-full border border-border px-6 py-2.5 text-[12px] font-semibold uppercase tracking-[0.22em] text-foreground/90 transition-colors duration-300 hover:border-gold hover:text-gold md:px-7 md:py-3"
                 >
                   Open your store
                 </Link>
@@ -220,11 +221,12 @@ function MarketplaceHome() {
         </div>
       </section>
 
-      {/* ── PARKED — category rail removed for now (nav mega-menu covers it).
-      <Reveal className="mt-8 md:mt-12">
+      {/* Collections rail — Temu-style quick category chips. Mobile-only on
+          home (desktop browses via the Discover mega-menu); every chip leads
+          into the filtered Discover grid. */}
+      <div className="mt-8 md:hidden">
         <CategoryIndex categories={categories.data} />
-      </Reveal>
-      ── end parked ── */}
+      </div>
 
       {/* Featured stores */}
       <Reveal>
@@ -277,21 +279,11 @@ function MarketplaceHome() {
       {/* Recommended for you — rule-based: buyer location first, then newest */}
       <RecommendedSection />
 
-      {/* Just dropped grid */}
+      {/* Just dropped grid — infinite feed, Jiji/Temu style */}
       <Reveal>
         <SectionHeader eyebrow="Recent acquisitions" title="Just arrived" icon={<Sparkles className="h-4 w-4" />} />
       </Reveal>
-      <div className="mt-4 grid grid-cols-2 gap-3 px-4 md:grid-cols-4 md:gap-5 md:px-8">
-        {products.isLoading &&
-          Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="aspect-[4/5] animate-pulse rounded-2xl bg-muted" />
-          ))}
-        {products.data?.map((p, i) => (
-          <Reveal key={p.id} delay={(i % 4) * 80}>
-            <ProductCardTile p={p} />
-          </Reveal>
-        ))}
-      </div>
+      <HomeFeed />
 
       {/* Seller CTA — quiet gold invitation */}
       <Reveal>
@@ -366,8 +358,8 @@ export function ProductCardTile({ p }: { p: ProductCard }) {
           <FavoriteButton productId={p.id} size="sm" />
         </div>
         {rating.count > 150 && (
-          <span className="absolute left-2 top-2 rounded-full border border-gold/40 bg-background/85 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-gold backdrop-blur">
-            Sought after
+          <span className="absolute left-1.5 top-1.5 rounded-full border border-gold/40 bg-background/85 px-1.5 py-px text-[8px] font-semibold uppercase tracking-[0.12em] text-gold backdrop-blur">
+            Hot
           </span>
         )}
       </div>
@@ -412,7 +404,7 @@ function RecommendedSection() {
             .eq("status", "active")
             .in("store_id", ids)
             .order("created_at", { ascending: false })
-            .limit(6);
+            .limit(8);
           if (data && data.length) return data;
         }
       }
@@ -421,7 +413,7 @@ function RecommendedSection() {
         .select("id, slug, title, base_price, currency, store:stores(slug, name, area, city), product_media(url)")
         .eq("status", "active")
         .order("created_at", { ascending: false })
-        .limit(6);
+        .limit(8);
       return data ?? [];
     },
   });
@@ -436,13 +428,54 @@ function RecommendedSection() {
           </div>
         </div>
       </Reveal>
-      <div className="no-scrollbar mt-4 flex gap-4 overflow-x-auto px-4 pb-2 md:grid md:grid-cols-3 md:overflow-visible md:px-8">
+      {/* Same 2-up grid as the rest of the marketplace — Temu-style, cards big
+          enough to read on a phone (was a cramped 160px scroller). */}
+      <div className="mt-4 grid grid-cols-2 gap-3 px-4 md:grid-cols-4 md:gap-5 md:px-8">
         {recs.data.map((p: any, i: number) => (
-          <Reveal key={p.id} delay={i * 70} className="w-40 shrink-0 md:w-auto">
+          <Reveal key={p.id} delay={(i % 4) * 60}>
             <ProductCardTile p={p} />
           </Reveal>
         ))}
       </div>
     </>
+  );
+}
+
+/* HomeFeed — the "Just arrived" infinite feed. Newest products page in as
+   the buyer scrolls; the sentinel prefetches 600px before the end. */
+function HomeFeed() {
+  const feed = useInfiniteProducts({
+    key: ["home-feed"],
+    applyFilters: (q) => q.order("created_at", { ascending: false }),
+  });
+  return (
+    <div className="mt-4 grid grid-cols-2 gap-3 px-4 pb-6 md:grid-cols-4 md:gap-5 md:px-8">
+      {feed.loading &&
+        Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="aspect-[4/5] animate-pulse rounded-2xl bg-muted" />
+        ))}
+      {feed.rows.map((p) => (
+        <ProductCardTile key={p.id} p={p} />
+      ))}
+      {feed.hasMore && !feed.loading && (
+        <div ref={feed.sentinelRef} className="col-span-full flex items-center justify-center py-6">
+          {feed.appending ? (
+            <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Loading more…</span>
+          ) : (
+            <button
+              onClick={() => void feed.loadMore()}
+              className="rounded-full border border-border px-5 py-2 text-xs font-semibold text-muted-foreground hover:border-gold/60 hover:text-gold"
+            >
+              Load more
+            </button>
+          )}
+        </div>
+      )}
+      {!feed.hasMore && feed.rows.length > 0 && (
+        <p className="col-span-full py-5 text-center text-[11px] uppercase tracking-[0.2em] text-muted-foreground/70">
+          You've seen it all — {feed.rows.length} item{feed.rows.length === 1 ? "" : "s"}
+        </p>
+      )}
+    </div>
   );
 }
