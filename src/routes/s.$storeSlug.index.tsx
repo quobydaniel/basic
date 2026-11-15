@@ -8,7 +8,7 @@ import { BadgeCheck, Check, ChevronRight, MapPin, MessageCircle, ShieldCheck, St
 import { toast } from "sonner";
 import { ProductCardTile, protoRating } from "./index";
 import { StoreAssistant, StoreAvatar, StoreLocationCard, StoreTopBar } from "@/components/StoreChrome";
-import { StoryViewer, useLiveStories, useStoreShorts } from "@/components/Stories";
+import { ShortsFeed, StoryViewer, useLiveStories, useStoreShorts } from "@/components/Stories";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
 
@@ -585,7 +585,7 @@ function StorefrontPage() {
         <StoryViewer stories={liveStories} storeSlug={s.slug} storeName={s.name} logoUrl={s.logo_url} accent={accent} onClose={() => setStoryOpen(false)} />
       )}
       {shortsOpen && shorts.length > 0 && (
-        <StoryViewer stories={shorts} kind="short" startIndex={shortIdx} storeSlug={s.slug} storeName={s.name} logoUrl={s.logo_url} accent={accent} onClose={() => setShortsOpen(false)} />
+        <ShortsFeed shorts={shorts} startIndex={shortIdx} storeSlug={s.slug} storeName={s.name} logoUrl={s.logo_url} accent={accent} onClose={() => setShortsOpen(false)} />
       )}
       <div className="h-20" />
     </div>

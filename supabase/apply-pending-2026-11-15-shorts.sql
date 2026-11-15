@@ -12,6 +12,11 @@
 -- 2) short_views — one view per viewer per short (PK pair), so the
 --    seller dashboard can show view counts. Anonymous watching works;
 --    only signed-in viewers are counted.
+-- 3) short_likes — one like per viewer per short (PK pair), YouTube-
+--    Shorts-style like with a toggle (insert/delete).
+-- 4) store_short_stats(p_store) — SECURITY DEFINER counts (views +
+--    likes per short) so the public feed can show numbers without
+--    exposing viewer identity rows.
 --
 -- Run as postgres (Dashboard → SQL Editor) once. Idempotent — same guard
 -- style as the c→k stack.
@@ -93,3 +98,54 @@ BEGIN
       WITH CHECK (viewer_id = auth.uid());
   END IF;
 END $$;
+
+-- ---------- likes (YouTube-Shorts style toggle) ----------
+CREATE TABLE IF NOT EXISTS public.short_likes (
+  short_id uuid NOT NULL REFERENCES public.shorts(id) ON DELETE CASCADE,
+  viewer_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (short_id, viewer_id)
+);
+
+ALTER TABLE public.short_likes ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT ON public.short_likes TO anon, authenticated;
+GRANT INSERT, DELETE ON public.short_likes TO authenticated;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='short_likes' AND policyname='short_likes_public_read') THEN
+    CREATE POLICY "short_likes_public_read" ON public.short_likes
+      FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='short_likes' AND policyname='short_likes_self_insert') THEN
+    CREATE POLICY "short_likes_self_insert" ON public.short_likes
+      FOR INSERT TO authenticated
+      WITH CHECK (viewer_id = auth.uid());
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='short_likes' AND policyname='short_likes_self_delete') THEN
+    CREATE POLICY "short_likes_self_delete" ON public.short_likes
+      FOR DELETE TO authenticated
+      USING (viewer_id = auth.uid());
+  END IF;
+END $$;
+
+-- ---------- public stats (counts only, never identity rows) ----------
+-- One call gives the feed and the dashboard every short's view + like
+-- counts. SECURITY DEFINER so anon buyers get numbers without any
+-- SELECT on the identity-bearing tables.
+CREATE OR REPLACE FUNCTION public.store_short_stats(p_store uuid)
+RETURNS TABLE (short_id uuid, views bigint, likes bigint)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT sh.id,
+         (SELECT count(*) FROM public.short_views v WHERE v.short_id = sh.id),
+         (SELECT count(*) FROM public.short_likes l WHERE l.short_id = sh.id)
+  FROM public.shorts sh
+  WHERE sh.store_id = p_store;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.store_short_stats(uuid) TO anon, authenticated;

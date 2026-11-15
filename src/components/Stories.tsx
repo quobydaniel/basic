@@ -9,7 +9,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Share2, X } from "lucide-react";
+import { Eye, Package, Play, Share2, ThumbsUp, Volume2, VolumeX, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
@@ -410,6 +410,333 @@ export function StoryViewer({
           )}
           {kind === "story" && <ReactionBar storyId={cur.id} accent={accent} />}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* ShortsFeed — YouTube-Shorts-style vertical feed                  */
+/* ---------------------------------------------------------------- */
+
+/* Fullscreen snap-scroll feed: swipe up/down between shorts, tap to
+   pause, like with count (short_likes), share to WhatsApp, product chip,
+   mute toggle, thin progress bar, view-counted in short_views. Public
+   numbers come from the store_short_stats RPC — identity rows never
+   leave the database. Pre-migration this renders a quiet empty feed;
+   nothing calls it until the tab has shorts anyway. */
+export function ShortsFeed({
+  shorts,
+  storeSlug,
+  storeName,
+  logoUrl,
+  accent,
+  startIndex = 0,
+  onClose,
+}: {
+  shorts: ShortRow[];
+  storeSlug: string;
+  storeName: string;
+  logoUrl: string | null;
+  accent: string;
+  startIndex?: number;
+  onClose: () => void;
+}) {
+  const { user } = useSession();
+  const qc = useQueryClient();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [muted, setMuted] = useState(true);
+  const [pct, setPct] = useState(0);
+  const viewedRef = useRef<Set<string>>(new Set());
+  const vidRef = useRef<HTMLVideoElement>(null);
+  const cur = shorts[active];
+
+  // Play/pause imperatively — the active video follows the tap state,
+  // neighbors stay still until they scroll in.
+  useEffect(() => {
+    const v = vidRef.current;
+    if (!v) return;
+    if (paused) v.pause();
+    else v.play().catch(() => {});
+  }, [paused, active, muted]);
+
+  // Public counts — views + likes per short for this store (one RPC).
+  const stats = useQuery({
+    queryKey: ["short-stats", shorts[0]?.store_id],
+    enabled: !!shorts.length,
+    retry: false,
+    staleTime: 20_000,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc("store_short_stats", { p_store: shorts[0].store_id });
+      if (error) throw error;
+      const m: Record<string, { views: number; likes: number }> = {};
+      for (const r of data ?? []) m[r.short_id] = { views: Number(r.views), likes: Number(r.likes) };
+      return m;
+    },
+  });
+
+  // Which shorts this viewer already liked (drives the filled thumb).
+  const myLikes = useQuery({
+    queryKey: ["short-likes-mine", user?.id, shorts[0]?.store_id],
+    enabled: !!user && !!shorts.length,
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("short_likes")
+        .select("short_id")
+        .eq("viewer_id", user!.id)
+        .in("short_id", shorts.map((s) => s.id));
+      if (error) throw error;
+      return new Set<string>((data ?? []).map((r: any) => r.short_id as string));
+    },
+  });
+
+  // Active section + once-per-open view tracking. Only videos near the
+  // active section are mounted — a long feed never decodes everything.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting && e.intersectionRatio >= 0.6) {
+            const idx = Number((e.target as HTMLElement).dataset.idx);
+            setActive(idx);
+            setPaused(false);
+            setPct(0);
+            const sh = shorts[idx];
+            if (sh && user && !viewedRef.current.has(sh.id)) {
+              viewedRef.current.add(sh.id);
+              (supabase as any)
+                .from("short_views")
+                .upsert({ short_id: sh.id, viewer_id: user.id }, { onConflict: "short_id,viewer_id", ignoreDuplicates: true })
+                .then(() => qc.invalidateQueries({ queryKey: ["short-stats"] }))
+                .catch(() => {});
+            }
+          }
+        }
+      },
+      { root, threshold: [0.6] },
+    );
+    root.querySelectorAll("[data-idx]").forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [shorts, user, qc]);
+
+  // Open mid-feed at the tapped tile.
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (root && startIndex > 0) root.scrollTo({ top: startIndex * root.clientHeight });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keyboard + scroll lock.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        const root = scrollRef.current;
+        if (!root) return;
+        e.preventDefault();
+        const dir = e.key === "ArrowDown" ? 1 : -1;
+        root.scrollTo({ top: Math.max(0, (active + dir)) * root.clientHeight, behavior: "smooth" });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  const like = useMutation({
+    mutationFn: async (id: string) => {
+      if (!user) throw new Error("Sign in to like shorts");
+      if (myLikes.data?.has(id)) {
+        const { error } = await (supabase as any).from("short_likes").delete().eq("short_id", id).eq("viewer_id", user.id);
+        if (error) throw error;
+      } else {
+        const { error } = await (supabase as any)
+          .from("short_likes")
+          .upsert({ short_id: id, viewer_id: user.id }, { onConflict: "short_id,viewer_id", ignoreDuplicates: true });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["short-likes-mine"] });
+      qc.invalidateQueries({ queryKey: ["short-stats"] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not like"),
+  });
+
+  if (!cur) return null;
+
+  const likeCount = stats.data?.[cur.id]?.likes ?? 0;
+  const viewCount = stats.data?.[cur.id]?.views ?? 0;
+  const liked = !!myLikes.data?.has(cur.id);
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black text-white" role="dialog" aria-label={`${storeName} shorts`}>
+      {/* top bar */}
+      <div className="absolute inset-x-0 top-0 z-30 flex items-center gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 pb-8 pt-4">
+        <p className="font-display text-lg">Shorts</p>
+        <p className="min-w-0 flex-1 truncate text-xs text-white/70">{storeName}</p>
+        <button
+          onClick={() => setMuted((m) => !m)}
+          aria-label={muted ? "Unmute" : "Mute"}
+          className="grid h-9 w-9 place-items-center rounded-full bg-white/10 transition-colors hover:bg-white/20"
+        >
+          {muted ? <VolumeX className="h-4.5 w-4.5" /> : <Volume2 className="h-4.5 w-4.5" />}
+        </button>
+        <button
+          onClick={onClose}
+          aria-label="Close shorts"
+          className="grid h-9 w-9 place-items-center rounded-full bg-white/10 transition-colors hover:bg-white/20"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* the feed */}
+      <div ref={scrollRef} className="no-scrollbar h-full w-full snap-y snap-mandatory overflow-y-auto">
+        {shorts.map((sh, idx) => (
+          <section key={sh.id} data-idx={idx} className="relative h-full w-full snap-start snap-always overflow-hidden">
+            {Math.abs(idx - active) <= 1 ? (
+              sh.media_type === "video" ? (
+                <video
+                  ref={idx === active ? vidRef : undefined}
+                  src={sh.media_url}
+                  loop
+                  playsInline
+                  muted={muted}
+                  onClick={() => idx === active && setPaused((p) => !p)}
+                  onTimeUpdate={
+                    idx === active
+                      ? (e) => {
+                          const v = e.currentTarget;
+                          if (v.duration > 0) setPct(v.currentTime / v.duration);
+                        }
+                      : undefined
+                  }
+                  className="h-full w-full cursor-pointer object-contain"
+                />
+              ) : (
+                <img
+                  src={sh.media_url}
+                  alt=""
+                  onClick={() => idx === active && setPaused((p) => !p)}
+                  className="h-full w-full cursor-pointer object-contain"
+                />
+              )
+            ) : (
+              /* Distant sections stay cheap — caption-only placeholder. */
+              <div className="grid h-full w-full place-items-center px-8 text-center text-sm text-white/50">
+                <p className="line-clamp-2">{sh.caption ?? storeName}</p>
+              </div>
+            )}
+
+            {idx === active && (
+              <>
+                {paused && (
+                  <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                    <span className="grid h-16 w-16 place-items-center rounded-full bg-black/50 backdrop-blur">
+                      <Play className="h-7 w-7 fill-white" />
+                    </span>
+                  </div>
+                )}
+                {/* bottom gradient + info */}
+                <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-4 pb-6 pt-16">
+                  <div className="flex items-end justify-between gap-3">
+                    <div className="min-w-0 max-w-[75%]">
+                      <Link
+                        to="/s/$storeSlug"
+                        params={{ storeSlug }}
+                        onClick={onClose}
+                        className="flex items-center gap-2"
+                      >
+                        {logoUrl ? (
+                          <img src={logoUrl} alt="" className="h-8 w-8 rounded-full object-cover ring-1 ring-white/40" />
+                        ) : (
+                          <span className="grid h-8 w-8 place-items-center rounded-full bg-white/15 font-display text-xs">
+                            {storeName.slice(0, 1)}
+                          </span>
+                        )}
+                        <span className="truncate text-sm font-semibold">{storeName}</span>
+                      </Link>
+                      {sh.caption && <p className="mt-2 line-clamp-2 text-sm leading-snug text-white/90">{sh.caption}</p>}
+                      <p className="mt-1.5 text-[11px] text-white/70">
+                        {viewCount.toLocaleString()} views · {new Date(sh.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+
+                    {/* action rail */}
+                    <div className="flex shrink-0 flex-col items-center gap-4">
+                      <button
+                        onClick={() => like.mutate(sh.id)}
+                        disabled={like.isPending}
+                        aria-label={liked ? "Unlike" : "Like"}
+                        aria-pressed={liked}
+                        className="flex flex-col items-center gap-1"
+                      >
+                        <span
+                          className={`grid h-11 w-11 place-items-center rounded-full transition-transform active:scale-90 ${
+                            liked ? "ring-2" : "bg-white/10 hover:bg-white/20"
+                          }`}
+                          style={liked ? { background: accent, ["--tw-ring-color" as any]: "rgba(255,255,255,.6)" } : undefined}
+                        >
+                          <ThumbsUp className={`h-5 w-5 ${liked ? "fill-white" : ""}`} />
+                        </span>
+                        <span className="text-[10px] font-semibold">{likeCount.toLocaleString()}</span>
+                      </button>
+                      <span className="flex flex-col items-center gap-1" title="Views">
+                        <span className="grid h-11 w-11 place-items-center rounded-full bg-white/10">
+                          <Eye className="h-5 w-5" />
+                        </span>
+                        <span className="text-[10px] font-semibold">{viewCount.toLocaleString()}</span>
+                      </span>
+                      <button
+                        onClick={() => shareShort(storeSlug, storeName)}
+                        aria-label="Share short"
+                        title="Share to WhatsApp"
+                        className="flex flex-col items-center gap-1"
+                      >
+                        <span className="grid h-11 w-11 place-items-center rounded-full bg-white/10 transition-colors hover:bg-white/20">
+                          <Share2 className="h-5 w-5" />
+                        </span>
+                        <span className="text-[10px] font-semibold">Share</span>
+                      </button>
+                      {sh.product && (
+                        <Link
+                          to="/s/$storeSlug/p/$productSlug"
+                          params={{ storeSlug, productSlug: sh.product.slug }}
+                          onClick={onClose}
+                          className="flex flex-col items-center gap-1"
+                          title={sh.product.title}
+                        >
+                          <span className="grid h-11 w-11 place-items-center rounded-full bg-white/10 transition-colors hover:bg-white/20">
+                            <Package className="h-5 w-5" />
+                          </span>
+                          <span className="max-w-[4.5rem] truncate text-[10px] font-semibold">Product</span>
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* progress bar */}
+                  {sh.media_type === "video" && (
+                    <div className="absolute inset-x-4 bottom-1.5 h-0.5 overflow-hidden rounded-full bg-white/25">
+                      <div className="h-full rounded-full bg-white" style={{ width: `${pct * 100}%` }} />
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </section>
+        ))}
       </div>
     </div>
   );

@@ -97,8 +97,12 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   const [menuOpen, setMenuOpen] = useState(false);
   // True while the store's AI (auto-pilot) is composing its reply — the
   // buyer sees the WhatsApp-style typing bubble; the watching seller sees
-  // "AI is replying…" in the header.
+  // "AI is replying…" in the header. Cleared only when the reply message
+  // actually lands (below), never on request-settle.
   const [aiTyping, setAiTyping] = useState(false);
+  // The message the AI is currently answering — the bubble holds until a
+  // NEWER message than this one arrives.
+  const replyAwaitRef = useRef<string | null>(null);
   const [showOrderPanel, setShowOrderPanel] = useState(false);
   const [orderTotal, setOrderTotal] = useState("");
   const [fulfillment, setFulfillment] = useState("meet_in_person");
@@ -252,10 +256,10 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     if (autoRef.current === lastMsg.id) return;
     autoRef.current = lastMsg.id;
     setAiTyping(true);
+    replyAwaitRef.current = lastMsg.id;
     autoPilot({ data: { conversation_id: conversationId } })
       .then(() => qc.invalidateQueries({ queryKey: ["msgs", conversationId] }))
-      .catch(() => {})
-      .finally(() => setAiTyping(false));
+      .catch(() => {}); // the bubble-clear effect below owns turning it off
   }, [user, convo.data, lastMsg, conversationId, autoPilot, autoPilotOn]);
 
   // ── BUYER side: the offline-seller auto-reply ──
@@ -273,13 +277,34 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     pilotFiredRef.current.add(lastMsg.id);
     const t = setTimeout(() => {
       setAiTyping(true);
+      replyAwaitRef.current = lastMsg.id;
       remoteReply({ data: { conversation_id: conversationId } })
         .then(() => qc.invalidateQueries({ queryKey: ["msgs", conversationId] }))
-        .catch(() => {}) // silent by design — the seller's AI failing must never look like the buyer's fault
-        .finally(() => setAiTyping(false));
+        .catch(() => {}); // silent by design — the seller's AI failing must never look like the buyer's fault
     }, 1000);
     return () => clearTimeout(t);
-  }, [user, convo.data, lastMsg, isSeller, conversationId, remoteReply, qc]);
+  }, [user, convo.data, lastMsg, isSeller, conversationId, remoteReply, qc, meta]);
+
+  // The typing bubble must OUTLIVE the request: the reply message only
+  // renders after a refetch round-trip (and a dedupe response can return
+  // while the other path's reply is still in flight). Hold the bubble
+  // until a message NEWER than the trigger actually lands — with a 30s
+  // cap so a dead AI never leaves it spinning forever.
+  useEffect(() => {
+    if (!aiTyping || !replyAwaitRef.current || !lastMsg) return;
+    if (lastMsg.id !== replyAwaitRef.current) {
+      replyAwaitRef.current = null;
+      setAiTyping(false);
+    }
+  }, [aiTyping, lastMsg]);
+  useEffect(() => {
+    if (!aiTyping) return;
+    const t = setTimeout(() => {
+      replyAwaitRef.current = null;
+      setAiTyping(false);
+    }, 30_000);
+    return () => clearTimeout(t);
+  }, [aiTyping]);
 
   // Toggle: seller flips the store's auto-pilot from the thread header.
   const pilotBusy = useRef(false);

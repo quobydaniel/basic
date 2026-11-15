@@ -9,7 +9,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { Clapperboard, Eye, ImagePlus, Loader2, Share2, Trash2 } from "lucide-react";
+import { Clapperboard, Eye, Heart, ImagePlus, Loader2, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { shareShort } from "@/components/Stories";
 import { supabase } from "@/integrations/supabase/client";
@@ -80,18 +80,19 @@ function ShortsPage() {
     },
   });
 
-  // View counts for the store's shorts (sellers read them through
-  // short_views_read — same shape as the stories dashboard).
-  const views = useQuery({
-    queryKey: ["dashboard-shorts-views", store?.id, (shorts.data ?? []).map((s: any) => s.id).join(",")],
-    enabled: !!(shorts.data ?? []).length,
+  // View + like counts — one store_short_stats RPC covers both (same
+  // call the public feed uses; pre-migration it errors → zeros).
+  const stats = useQuery({
+    queryKey: ["short-stats", store?.id],
+    enabled: !!store,
+    retry: false,
+    staleTime: 20_000,
     queryFn: async () => {
-      const ids = (shorts.data ?? []).map((s: any) => s.id);
-      const { data, error } = await (supabase as any).from("short_views").select("short_id").in("short_id", ids);
+      const { data, error } = await (supabase as any).rpc("store_short_stats", { p_store: store!.id });
       if (error) throw error;
-      const vCount: Record<string, number> = {};
-      for (const r of data ?? []) vCount[r.short_id] = (vCount[r.short_id] ?? 0) + 1;
-      return vCount;
+      const m: Record<string, { views: number; likes: number }> = {};
+      for (const r of data ?? []) m[r.short_id] = { views: Number(r.views), likes: Number(r.likes) };
+      return m;
     },
   });
 
@@ -139,6 +140,7 @@ function ShortsPage() {
       if (fileInput.current) fileInput.current.value = "";
       qc.invalidateQueries({ queryKey: ["dashboard-shorts"] });
       qc.invalidateQueries({ queryKey: ["store-shorts"] });
+      qc.invalidateQueries({ queryKey: ["short-stats"] });
     },
     onError: (e) => {
       const m = errMsg(e);
@@ -163,6 +165,7 @@ function ShortsPage() {
       toast.success("Short deleted");
       qc.invalidateQueries({ queryKey: ["dashboard-shorts"] });
       qc.invalidateQueries({ queryKey: ["store-shorts"] });
+      qc.invalidateQueries({ queryKey: ["short-stats"] });
     },
     onError: (e) => toast.error(errMsg(e) || "Could not delete"),
   });
@@ -297,8 +300,9 @@ function ShortsPage() {
                   {s.product?.title ? `Product: ${s.product.title} · ` : ""}
                   {new Date(s.created_at).toLocaleDateString()}
                 </p>
-                <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
-                  <Eye className="h-3.5 w-3.5" /> {views.data?.[s.id] ?? 0} views
+                <p className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1"><Eye className="h-3.5 w-3.5" /> {stats.data?.[s.id]?.views ?? 0} views</span>
+                  <span className="flex items-center gap-1"><Heart className="h-3.5 w-3.5" /> {stats.data?.[s.id]?.likes ?? 0} likes</span>
                 </p>
               </div>
               <div className="flex shrink-0 flex-col gap-1.5 self-start">
