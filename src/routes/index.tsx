@@ -271,7 +271,7 @@ function MarketplaceHome() {
                 {s.logo_url && (hasStory ? (
                   <span
                     className="grid h-10 w-10 shrink-0 place-items-center rounded-full p-[2px]"
-                    style={{ background: "conic-gradient(from 210deg, var(--gold), transparent 55%, var(--gold))" }}
+                    style={{ background: "conic-gradient(from 210deg, var(--gold), color-mix(in oklab, var(--gold), white 45%) 50%, var(--gold))" }}
                   >
                     <img
                       src={s.logo_url}

@@ -8,7 +8,7 @@ import { BadgeCheck, Check, ChevronRight, MapPin, MessageCircle, ShieldCheck, St
 import { toast } from "sonner";
 import { ProductCardTile, protoRating } from "./index";
 import { StoreAssistant, StoreAvatar, StoreLocationCard, StoreTopBar } from "@/components/StoreChrome";
-import { StoryTray, StoryViewer, useLiveStories } from "@/components/Stories";
+import { StoryViewer, useLiveStories } from "@/components/Stories";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
 
@@ -258,8 +258,8 @@ function StorefrontPage() {
               <button
                 onClick={() => setStoryOpen(true)}
                 aria-label={`Watch ${s.name}'s story`}
-                className="shrink-0 rounded-full p-[3px] transition-transform active:scale-95"
-                style={{ background: storyUnseen ? `conic-gradient(from 210deg, ${accent}, transparent 55%, ${accent})` : "var(--border)" }}
+                className="shrink-0 self-start rounded-full p-[3px] transition-transform active:scale-95"
+                style={{ background: storyUnseen ? `conic-gradient(from 210deg, ${accent}, color-mix(in oklab, ${accent}, white 45%) 50%, ${accent})` : "var(--border)" }}
               >
                 <StoreAvatar store={s} className="h-24 w-24 rounded-full border-4 border-background object-cover shadow-[var(--shadow-soft)] md:h-28 md:w-28" />
               </button>
@@ -323,13 +323,6 @@ function StorefrontPage() {
           </div>
         </div>
       </section>
-
-      {/* Stories — the seller's 24h status, WhatsApp-style. Renders nothing
-          until the store has a live story (and quietly nothing before the
-          stories migration runs). */}
-      <div className="mt-4">
-        <StoryTray stories={liveStories} unseen={storyUnseen} onOpen={() => setStoryOpen(true)} storeName={s.name} logoUrl={s.logo_url} accent={accent} />
-      </div>
 
       {/* Tabs */}
       <div className="mx-auto mt-6 max-w-6xl px-4 md:px-8">

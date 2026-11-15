@@ -268,7 +268,7 @@ function StoresPage() {
                       WhatsApp-style golden ring (monogram tile when logoless). */}
                   <span
                     className={`absolute -top-7 left-5 grid h-14 w-14 place-items-center rounded-2xl shadow-[var(--shadow-soft)] ${hasStory ? "p-[2.5px]" : ""}`}
-                    style={hasStory ? { background: "conic-gradient(from 210deg, var(--gold), transparent 55%, var(--gold))" } : undefined}
+                    style={hasStory ? { background: "conic-gradient(from 210deg, var(--gold), color-mix(in oklab, var(--gold), white 45%) 50%, var(--gold))" } : undefined}
                   >
                     {s.logo_url ? (
                       <img

@@ -150,7 +150,7 @@ export function StoryTray({
       >
         <span
           className="grid h-14 w-14 shrink-0 place-items-center rounded-full p-[2.5px] transition-transform group-active:scale-95"
-          style={{ background: unseen ? `conic-gradient(from 210deg, ${accent}, transparent 55%, ${accent})` : "var(--border)" }}
+          style={{ background: unseen ? `conic-gradient(from 210deg, ${accent}, color-mix(in oklab, ${accent}, white 45%) 50%, ${accent})` : "var(--border)" }}
         >
           <span className="grid h-full w-full place-items-center rounded-full bg-background p-[2px]">
             {logoUrl ? (
