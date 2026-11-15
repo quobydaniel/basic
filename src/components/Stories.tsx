@@ -53,27 +53,13 @@ export function shareStory(storeSlug: string, storeName: string) {
 }
 
 /* ---------------------------------------------------------------- */
-/* Tray — the store's story ring on the storefront                  */
+/* Hooks — story data shared across surfaces                        */
 /* ---------------------------------------------------------------- */
 
-export function StoryTray({
-  storeId,
-  storeSlug,
-  storeName,
-  logoUrl,
-  accent,
-  autoOpen = false,
-}: {
-  storeId: string;
-  storeSlug: string;
-  storeName: string;
-  logoUrl: string | null;
-  accent: string;
-  autoOpen?: boolean;
-}) {
-  const { user } = useSession();
-  const [open, setOpen] = useState(autoOpen);
-
+/* One store's live stories + whether the current viewer still has
+   unseen ones (drives every ring shade). Pre-migration this 404s →
+   empty list, so every ring surface quietly renders plain. */
+export function useLiveStories(storeId: string | undefined, userId: string | undefined) {
   const stories = useQuery({
     queryKey: ["store-stories", storeId],
     queryFn: async () => {
@@ -90,72 +76,101 @@ export function StoryTray({
     staleTime: 30_000,
   });
 
-  // Own views → the ring greys out once the buyer has caught up.
+  const list = stories.data ?? [];
+
+  // Own views → the rings grey out once the buyer has caught up.
   const myViews = useQuery({
-    queryKey: ["story-views-mine", storeId, user?.id],
+    queryKey: ["story-views-mine", storeId, userId],
     queryFn: async () => {
-      const ids = (stories.data ?? []).map((s) => s.id);
+      const ids = list.map((s) => s.id);
       if (!ids.length) return [] as string[];
       const { data, error } = await (supabase as any)
         .from("story_views")
         .select("story_id")
-        .eq("viewer_id", user!.id)
+        .eq("viewer_id", userId)
         .in("story_id", ids);
       if (error) throw error;
       return (data ?? []).map((v: any) => v.story_id as string);
     },
-    enabled: !!storeId && !!user && !!(stories.data ?? []).length,
+    enabled: !!storeId && !!userId && list.length > 0,
   });
 
-  // Before the migration runs (or while a store has no stories) stay quiet.
-  if (stories.error || !stories.data?.length) return null;
-
   const viewed = new Set(myViews.data ?? []);
-  const unseen = stories.data.some((s) => !viewed.has(s.id));
+  return { stories: list, unseen: list.some((s) => !viewed.has(s.id)) };
+}
+
+/* Directory-level: which stores have a live story (store_id → count).
+   Shared by /stores and the home featured rail — one cache entry. */
+export function useStoryStoreIds() {
+  return useQuery({
+    queryKey: ["stores-directory-stories"],
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("stories")
+        .select("store_id")
+        .gt("expires_at", new Date().toISOString());
+      if (error) throw error;
+      const set: Record<string, number> = {};
+      for (const r of data ?? []) set[(r as any).store_id] = (set[(r as any).store_id] ?? 0) + 1;
+      return set;
+    },
+  });
+}
+
+/* ---------------------------------------------------------------- */
+/* Tray — the store's story ring on the storefront                  */
+/* ---------------------------------------------------------------- */
+
+/* Presentational — the page owns the story data and the viewer, so the
+   hero avatar ring and this tray trigger the same fullscreen playback. */
+export function StoryTray({
+  stories,
+  unseen,
+  onOpen,
+  storeName,
+  logoUrl,
+  accent,
+}: {
+  stories: StoryRow[];
+  unseen: boolean;
+  onOpen: () => void;
+  storeName: string;
+  logoUrl: string | null;
+  accent: string;
+}) {
+  if (!stories.length) return null;
 
   return (
-    <>
-      <div className="mx-auto max-w-6xl px-4 md:px-8">
-        <button
-          onClick={() => setOpen(true)}
-          className="group flex items-center gap-3 rounded-2xl py-2 pr-3 text-left"
-          aria-label={`Watch ${storeName}'s story`}
+    <div className="mx-auto max-w-6xl px-4 md:px-8">
+      <button
+        onClick={onOpen}
+        className="group flex items-center gap-3 rounded-2xl py-2 pr-3 text-left"
+        aria-label={`Watch ${storeName}'s story`}
+      >
+        <span
+          className="grid h-14 w-14 shrink-0 place-items-center rounded-full p-[2.5px] transition-transform group-active:scale-95"
+          style={{ background: unseen ? `conic-gradient(from 210deg, ${accent}, transparent 55%, ${accent})` : "var(--border)" }}
         >
-          <span
-            className="grid h-14 w-14 shrink-0 place-items-center rounded-full p-[2.5px] transition-transform group-active:scale-95"
-            style={{ background: unseen ? `conic-gradient(from 210deg, ${accent}, transparent 55%, ${accent})` : "var(--border)" }}
-          >
-            <span className="grid h-full w-full place-items-center rounded-full bg-background p-[2px]">
-              {logoUrl ? (
-                <img src={logoUrl} alt="" className="h-full w-full rounded-full object-cover" />
-              ) : (
-                <span className="grid h-full w-full place-items-center rounded-full bg-muted font-display text-sm">
-                  {storeName.slice(0, 1)}
-                </span>
-              )}
-            </span>
+          <span className="grid h-full w-full place-items-center rounded-full bg-background p-[2px]">
+            {logoUrl ? (
+              <img src={logoUrl} alt="" className="h-full w-full rounded-full object-cover" />
+            ) : (
+              <span className="grid h-full w-full place-items-center rounded-full bg-muted font-display text-sm">
+                {storeName.slice(0, 1)}
+              </span>
+            )}
           </span>
-          <span className="min-w-0">
-            <span className="block text-sm font-semibold leading-tight">{storeName}</span>
-            <span className="block text-[11px] text-muted-foreground">
-              Story · {stories.data.length > 1 ? `${stories.data.length} new · ` : ""}
-              {timeLeft(stories.data[stories.data.length - 1].expires_at)}
-            </span>
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold leading-tight">{storeName}</span>
+          <span className="block text-[11px] text-muted-foreground">
+            Story · {stories.length > 1 ? `${stories.length} new · ` : ""}
+            {timeLeft(stories[stories.length - 1].expires_at)}
           </span>
-        </button>
-      </div>
-
-      {open && (
-        <StoryViewer
-          stories={stories.data}
-          storeSlug={storeSlug}
-          storeName={storeName}
-          logoUrl={logoUrl}
-          accent={accent}
-          onClose={() => setOpen(false)}
-        />
-      )}
-    </>
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -163,7 +178,7 @@ export function StoryTray({
 /* Viewer — fullscreen, auto-advancing, reactable                   */
 /* ---------------------------------------------------------------- */
 
-function StoryViewer({
+export function StoryViewer({
   stories,
   storeSlug,
   storeName,

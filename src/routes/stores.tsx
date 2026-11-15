@@ -7,6 +7,7 @@ import { AppShell } from "@/components/AppShell";
 import { Reveal } from "@/components/motion";
 import { Stars } from "@/components/Stars";
 import { supabase } from "@/integrations/supabase/client";
+import { useStoryStoreIds } from "@/components/Stories";
 
 const searchSchema = z.object({
   city: z.string().optional(),
@@ -99,22 +100,10 @@ function StoresPage() {
   });
 
   // Houses with a live story (24h WhatsApp-style status) — golden profile
-  // ring + a deep link that starts the story on arrival. Pre-migration this
+  // ring + a deep link that starts the story on arrival. Shared hook with
+  // the home page so both surfaces hit one cached query; pre-migration it
   // 404s once and everything just renders ringless.
-  const storyStores = useQuery({
-    queryKey: ["stores-directory-stories"],
-    retry: false,
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("stories")
-        .select("store_id")
-        .gt("expires_at", new Date().toISOString());
-      if (error) throw error;
-      const set: Record<string, number> = {};
-      for (const r of data ?? []) set[(r as any).store_id] = (set[(r as any).store_id] ?? 0) + 1;
-      return set;
-    },
-  });
+  const storyStores = useStoryStoreIds();
 
   const rows = stores.data ?? [];
   const sort = search.sort ?? "new";

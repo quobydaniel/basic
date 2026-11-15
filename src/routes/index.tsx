@@ -5,6 +5,7 @@ import { ArrowRight, TrendingUp, Sparkles, Store as StoreIcon, Star } from "luci
 import { AppShell } from "@/components/AppShell";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import { Parallax, Reveal } from "@/components/motion";
+import { useStoryStoreIds } from "@/components/Stories";
 import { supabase } from "@/integrations/supabase/client";
 import { useBuyerLocation } from "@/lib/buyer-location";
 import { useInfiniteProducts } from "@/lib/use-infinite-products";
@@ -141,6 +142,9 @@ function MarketplaceHome() {
     return [...pro, ...free].slice(0, 6);
   }, [stores.data]);
 
+  // Houses with a live story light up golden on their featured card too.
+  const storyStores = useStoryStoreIds();
+
   return (
     <AppShell>
       {/* Obsidian hero — candlelight parallax over charcoal */}
@@ -239,9 +243,14 @@ function MarketplaceHome() {
           ))}
         {featuredStores.map((s: any, i: number) => (
           <Reveal key={s.id} delay={i * 90} className="shrink-0 md:w-auto">
+            {(() => {
+              const hasStory = (storyStores.data?.[s.id] ?? 0) > 0;
+              return (
             <Link
               to="/s/$storeSlug"
               params={{ storeSlug: s.slug }}
+              search={hasStory ? ({ story: "1" } as any) : undefined}
+              title={hasStory ? `${s.name} has a live story — tap to watch` : undefined}
               className="group relative block h-56 w-72 overflow-hidden rounded-3xl border border-border bg-card transition-all duration-500 hover:border-gold/50 hover:shadow-[0_24px_60px_-24px_oklch(0.80_0.11_85/0.35)] md:w-auto"
             >
               {s.plan === "pro" && (
@@ -259,19 +268,33 @@ function MarketplaceHome() {
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
               <div className="absolute inset-x-4 bottom-4 flex items-center gap-3 text-white">
-                {s.logo_url && (
+                {s.logo_url && (hasStory ? (
+                  <span
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full p-[2px]"
+                    style={{ background: "conic-gradient(from 210deg, var(--gold), transparent 55%, var(--gold))" }}
+                  >
+                    <img
+                      src={s.logo_url}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full rounded-full border border-gild/40 object-cover"
+                    />
+                  </span>
+                ) : (
                   <img
                     src={s.logo_url}
                     alt=""
                     className="h-10 w-10 rounded-full border border-gold/50 object-cover"
                   />
-                )}
+                ))}
                 <div className="min-w-0">
                   <p className="truncate font-display text-lg leading-tight">{s.name}</p>
                   <p className="truncate text-[11px] uppercase tracking-[0.18em] text-white/70">{s.tagline}</p>
                 </div>
               </div>
             </Link>
+              );
+            })()}
           </Reveal>
         ))}
       </div>

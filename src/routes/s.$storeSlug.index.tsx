@@ -3,12 +3,12 @@
 // Policies. The Pro AI shop assistant floats on top of it all.
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { BadgeCheck, Check, ChevronRight, MapPin, MessageCircle, ShieldCheck, Star, Truck, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { ProductCardTile, protoRating } from "./index";
 import { StoreAssistant, StoreAvatar, StoreLocationCard, StoreTopBar } from "@/components/StoreChrome";
-import { StoryTray } from "@/components/Stories";
+import { StoryTray, StoryViewer, useLiveStories } from "@/components/Stories";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
 
@@ -64,14 +64,6 @@ function StorefrontPage() {
   const [sort, setSort] = useState<SortKey>("relevance");
   const [following, setFollowing] = useState<boolean | null>(null);
   const [topMode, setTopMode] = useState<"sold" | "rating">("sold");
-  // ?story=1 — shared story links land here and the viewer starts playing
-  // on arrival (checked post-mount so server HTML matches first render).
-  const [autoPlay, setAutoPlay] = useState(false);
-  useEffect(() => {
-    const v = new URLSearchParams(window.location.search).get("story");
-    if (v === "1" || v === "true") setAutoPlay(true);
-  }, []);
-
   const store = useQuery({
     queryKey: ["store", storeSlug],
     queryFn: async () => {
@@ -85,6 +77,25 @@ function StorefrontPage() {
       return data as unknown as StoreRow;
     },
   });
+
+  // ?story=1 — shared story links land here and the viewer starts playing
+  // on arrival. TanStack's Link search serialization quotes the value
+  // ("1"), so strip quotes before matching. The stories query may still
+  // be in flight, so opening waits for data (once).
+  const [autoPlay, setAutoPlay] = useState(false);
+  const [storyOpen, setStoryOpen] = useState(false);
+  const autoPlayedRef = useRef(false);
+  const { stories: liveStories, unseen: storyUnseen } = useLiveStories(store.data?.id, user?.id);
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("story")?.replace(/"/g, "");
+    if (v === "1" || v === "true") setAutoPlay(true);
+  }, []);
+  useEffect(() => {
+    if (autoPlay && !autoPlayedRef.current && liveStories.length > 0) {
+      autoPlayedRef.current = true;
+      setStoryOpen(true);
+    }
+  }, [autoPlay, liveStories.length]);
 
   const products = useQuery({
     queryKey: ["store-products", storeSlug],
@@ -241,7 +252,20 @@ function StorefrontPage() {
         </div>
         <div className="relative z-10 mx-auto -mt-16 max-w-6xl px-4 md:px-8">
           <div className="flex flex-col gap-5 md:flex-row md:items-center">
-            <StoreAvatar store={s} className="h-24 w-24 rounded-full border-4 border-background object-cover shadow-[var(--shadow-soft)] md:h-28 md:w-28" />
+            {/* Live-story houses wear the WhatsApp-style golden ring on their
+                own profile picture too — tapping it plays the story. */}
+            {liveStories.length > 0 ? (
+              <button
+                onClick={() => setStoryOpen(true)}
+                aria-label={`Watch ${s.name}'s story`}
+                className="shrink-0 rounded-full p-[3px] transition-transform active:scale-95"
+                style={{ background: storyUnseen ? `conic-gradient(from 210deg, ${accent}, transparent 55%, ${accent})` : "var(--border)" }}
+              >
+                <StoreAvatar store={s} className="h-24 w-24 rounded-full border-4 border-background object-cover shadow-[var(--shadow-soft)] md:h-28 md:w-28" />
+              </button>
+            ) : (
+              <StoreAvatar store={s} className="h-24 w-24 rounded-full border-4 border-background object-cover shadow-[var(--shadow-soft)] md:h-28 md:w-28" />
+            )}
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="font-display text-3xl leading-tight">{s.name}</h1>
@@ -304,7 +328,7 @@ function StorefrontPage() {
           until the store has a live story (and quietly nothing before the
           stories migration runs). */}
       <div className="mt-4">
-        <StoryTray storeId={s.id} storeSlug={s.slug} storeName={s.name} logoUrl={s.logo_url} accent={accent} autoOpen={autoPlay} />
+        <StoryTray stories={liveStories} unseen={storyUnseen} onOpen={() => setStoryOpen(true)} storeName={s.name} logoUrl={s.logo_url} accent={accent} />
       </div>
 
       {/* Tabs */}
@@ -497,6 +521,9 @@ function StorefrontPage() {
       )}
 
       <StoreAssistant store={{ name: s.name, slug: s.slug, logo_url: s.logo_url, theme: s.theme, plan: s.plan }} />
+      {storyOpen && liveStories.length > 0 && (
+        <StoryViewer stories={liveStories} storeSlug={s.slug} storeName={s.name} logoUrl={s.logo_url} accent={accent} onClose={() => setStoryOpen(false)} />
+      )}
       <div className="h-20" />
     </div>
   );
