@@ -197,7 +197,16 @@ function chipIcon(s: string) {
 export function FloatingBuyerAssistant({ productId, context = "home" }: { productId?: string; context?: AssistantContext }) {
   const loc = useLocation();
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<Msg[]>([]);
+  // Cross-session memory: the thread survives reloads (last 12 turns,
+  // localStorage) so a returning buyer isn't greeted like a stranger.
+  const [messages, setMessages] = useState<Msg[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("basic:assistant-thread") ?? "[]");
+      return Array.isArray(saved) ? saved.slice(-12) : [];
+    } catch {
+      return [];
+    }
+  });
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [showTeaser, setShowTeaser] = useState(false);
@@ -248,6 +257,15 @@ export function FloatingBuyerAssistant({ productId, context = "home" }: { produc
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, open, busy]);
+
+  // Persist the thread — capped at 12 turns so it stays a memory, not an archive.
+  useEffect(() => {
+    try {
+      localStorage.setItem("basic:assistant-thread", JSON.stringify(messages.slice(-12)));
+    } catch {
+      /* private mode — memory just doesn't persist */
+    }
+  }, [messages]);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -339,7 +357,10 @@ export function FloatingBuyerAssistant({ productId, context = "home" }: { produc
             </div>
             {messages.length > 0 && (
               <button
-                onClick={() => setMessages([])}
+                onClick={() => {
+                  setMessages([]);
+                  try { localStorage.removeItem("basic:assistant-thread"); } catch {}
+                }}
                 className="ml-auto rounded-full px-2 py-1 text-xs text-muted-foreground hover:bg-accent"
               >
                 Clear
