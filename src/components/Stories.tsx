@@ -22,7 +22,20 @@ type StoryRow = {
   media_url: string;
   media_type: string;
   created_at: string;
-  expires_at: string;
+  expires_at?: string;
+  product: { title: string; slug: string } | null;
+};
+
+/* Shorts — the store's persistent showreel (no expiry). Same shape minus
+   expires_at; the viewer plays both kinds off this union. */
+export type ShortRow = {
+  id: string;
+  store_id: string;
+  product_id: string | null;
+  caption: string | null;
+  media_url: string;
+  media_type: string;
+  created_at: string;
   product: { title: string; slug: string } | null;
 };
 
@@ -30,7 +43,8 @@ const IMAGE_MS = 5000;
 const VIDEO_MS = 15000;
 const REACTIONS = ["❤️", "😂", "🔥", "😍"];
 
-function timeLeft(expiresAt: string): string {
+function timeLeft(expiresAt?: string): string {
+  if (!expiresAt) return "expired";
   const ms = new Date(expiresAt).getTime() - Date.now();
   if (ms <= 0) return "expired";
   const h = Math.floor(ms / 3_600_000);
@@ -47,6 +61,18 @@ export function shareStory(storeSlug: string, storeName: string) {
   const text = `Check out ${storeName}'s story on BASIC 🔥 ${url}`;
   if (typeof navigator !== "undefined" && navigator.share) {
     navigator.share({ title: storeName, text, url }).catch(() => {}); // dismissed — fine
+    return;
+  }
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+}
+
+/* Shorts share the same deep-link pattern — ?shorts=1 opens the Shorts
+   tab and starts playing. */
+export function shareShort(storeSlug: string, storeName: string) {
+  const url = `${window.location.origin}/s/${storeSlug}?shorts=1`;
+  const text = `${storeName}'s latest short on BASIC 🎬 ${url}`;
+  if (typeof navigator !== "undefined" && navigator.share) {
+    navigator.share({ title: storeName, text, url }).catch(() => {});
     return;
   }
   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
@@ -118,6 +144,26 @@ export function useStoryStoreIds() {
   });
 }
 
+/* One store's shorts — the persistent showreel behind the storefront's
+   Shorts tab, newest first. Pre-migration this 404s once → empty grid. */
+export function useStoreShorts(storeId: string | undefined) {
+  return useQuery({
+    queryKey: ["store-shorts", storeId],
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("shorts")
+        .select("id, store_id, product_id, caption, media_url, media_type, created_at, product:products(title, slug)")
+        .eq("store_id", storeId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as ShortRow[];
+    },
+    enabled: !!storeId,
+    staleTime: 60_000,
+  });
+}
+
 /* ---------------------------------------------------------------- */
 /* Tray — the store's story ring on the storefront                  */
 /* ---------------------------------------------------------------- */
@@ -185,17 +231,23 @@ export function StoryViewer({
   logoUrl,
   accent,
   onClose,
+  kind = "story",
+  startIndex,
 }: {
-  stories: StoryRow[];
+  stories: (StoryRow | ShortRow)[];
   storeSlug: string;
   storeName: string;
   logoUrl: string | null;
   accent: string;
   onClose: () => void;
+  /* "story" = 24h status (reactions + expiry clock); "short" = persistent
+     showreel piece (no reactions, view-tracked in short_views). */
+  kind?: "story" | "short";
+  startIndex?: number;
 }) {
   const { user } = useSession();
   const qc = useQueryClient();
-  const [i, setI] = useState(0);
+  const [i, setI] = useState(startIndex ?? 0);
   const [progress, setProgress] = useState(0);
   const advancedRef = useRef(false);
   const cur = stories[i];
@@ -215,14 +267,17 @@ export function StoryViewer({
     }
   };
 
-  // Seen-tracking: one upsert per story, best-effort — anon viewers skip.
+  // Seen-tracking: one upsert per piece, best-effort — anon viewers skip.
+  // Shorts count views in short_views; stories keep the seen-ring table.
   const markViewed = useMutation({
     mutationFn: async (storyId: string) => {
       if (!user) return;
+      const table = kind === "short" ? "short_views" : "story_views";
+      const col = kind === "short" ? "short_id" : "story_id";
       await (supabase as any)
-        .from("story_views")
-        .upsert({ story_id: storyId, viewer_id: user.id }, { onConflict: "story_id,viewer_id", ignoreDuplicates: true });
-      qc.invalidateQueries({ queryKey: ["story-views-mine"] });
+        .from(table)
+        .upsert({ [col]: storyId, viewer_id: user.id }, { onConflict: `${col},viewer_id`, ignoreDuplicates: true });
+      if (kind !== "short") qc.invalidateQueries({ queryKey: ["story-views-mine"] });
     },
   });
 
@@ -268,7 +323,7 @@ export function StoryViewer({
   if (!cur) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black text-white" role="dialog" aria-label={`${storeName} story`}>
+    <div className="fixed inset-0 z-[100] bg-black text-white" role="dialog" aria-label={`${storeName} ${kind}`}>
       {/* progress bars */}
       <div className="absolute inset-x-0 top-0 z-30 flex gap-1 px-3 pt-3">
         {stories.map((s, idx) => (
@@ -290,20 +345,20 @@ export function StoryViewer({
         )}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{storeName}</p>
-          <p className="text-[10px] text-white/70">{timeLeft(cur.expires_at)}</p>
+          <p className="text-[10px] text-white/70">{kind === "short" ? "Short" : timeLeft((cur as StoryRow).expires_at)}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <button
-            onClick={() => shareStory(storeSlug, storeName)}
-            aria-label="Share story"
-            title="Share to WhatsApp status"
+            onClick={() => (kind === "short" ? shareShort(storeSlug, storeName) : shareStory(storeSlug, storeName))}
+            aria-label={kind === "short" ? "Share short" : "Share story"}
+            title={kind === "short" ? "Share to WhatsApp" : "Share to WhatsApp status"}
             className="grid h-9 w-9 place-items-center rounded-full bg-white/10 transition-colors hover:bg-white/20"
           >
             <Share2 className="h-4.5 w-4.5" />
           </button>
           <button
             onClick={onClose}
-            aria-label="Close story"
+            aria-label={kind === "short" ? "Close short" : "Close story"}
             className="grid h-9 w-9 place-items-center rounded-full bg-white/10 transition-colors hover:bg-white/20"
           >
             <X className="h-5 w-5" />
@@ -353,7 +408,7 @@ export function StoryViewer({
           ) : (
             <span />
           )}
-          <ReactionBar storyId={cur.id} accent={accent} />
+          {kind === "story" && <ReactionBar storyId={cur.id} accent={accent} />}
         </div>
       </div>
     </div>

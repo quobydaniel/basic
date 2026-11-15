@@ -8,7 +8,7 @@ import { BadgeCheck, Check, ChevronRight, MapPin, MessageCircle, ShieldCheck, St
 import { toast } from "sonner";
 import { ProductCardTile, protoRating } from "./index";
 import { StoreAssistant, StoreAvatar, StoreLocationCard, StoreTopBar } from "@/components/StoreChrome";
-import { StoryViewer, useLiveStories } from "@/components/Stories";
+import { StoryViewer, useLiveStories, useStoreShorts } from "@/components/Stories";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
 
@@ -59,7 +59,7 @@ function StorefrontPage() {
   const { storeSlug } = Route.useParams();
   const { user } = useSession();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<"items" | "reviews" | "about" | "policies">("items");
+  const [tab, setTab] = useState<"items" | "shorts" | "reviews" | "about" | "policies">("items");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("relevance");
   const [following, setFollowing] = useState<boolean | null>(null);
@@ -96,6 +96,25 @@ function StorefrontPage() {
       setStoryOpen(true);
     }
   }, [autoPlay, liveStories.length]);
+
+  // Shorts — the store's persistent showreel. ?shorts=1 deep link lands on
+  // the Shorts tab and starts playing once the grid has data (same
+  // wait-for-data pattern as the story link above).
+  const shortsQ = useStoreShorts(store.data?.id);
+  const shorts = shortsQ.data ?? [];
+  const [shortsOpen, setShortsOpen] = useState(false);
+  const [shortIdx, setShortIdx] = useState(0);
+  const shortAutoRef = useRef(false);
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("shorts")?.replace(/"/g, "");
+    if (v !== "1" && v !== "true") return;
+    setTab("shorts");
+    if (!shortAutoRef.current && shorts.length > 0) {
+      shortAutoRef.current = true;
+      setShortIdx(0);
+      setShortsOpen(true);
+    }
+  }, [shorts.length]);
 
   const products = useQuery({
     queryKey: ["store-products", storeSlug],
@@ -330,6 +349,7 @@ function StorefrontPage() {
           <div className="no-scrollbar flex gap-5 overflow-x-auto">
             {([
               ["items", "Items"],
+              ...(shorts.length > 0 ? [["shorts", "Shorts"] as const] : []),
               ["reviews", reviewRows.length ? `Reviews (${avg.toFixed(1)}★)` : "Reviews"],
               ["about", "About"],
               ["policies", "Policies"],
@@ -406,6 +426,53 @@ function StorefrontPage() {
                 {q ? `Nothing matches "${q}".` : "This store hasn't listed products yet."}
               </p>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Shorts — the store's persistent showreel. Portrait tiles, tap to
+          play fullscreen with the shared story player (no expiry). */}
+      {tab === "shorts" && (
+        <div className="mx-auto max-w-6xl px-4 py-6 md:px-8">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {shorts.map((sh, idx) => (
+              <button
+                key={sh.id}
+                onClick={() => {
+                  setShortIdx(idx);
+                  setShortsOpen(true);
+                }}
+                className="group relative aspect-[9/16] overflow-hidden rounded-2xl border border-border bg-card text-left transition-colors hover:border-[var(--gold)]/50"
+                aria-label={`Play short${sh.caption ? `: ${sh.caption}` : ""}`}
+              >
+                {sh.media_type === "video" ? (
+                  <video
+                    src={sh.media_url}
+                    muted
+                    loop
+                    playsInline
+                    preload="metadata"
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                  />
+                ) : (
+                  <img
+                    src={sh.media_url}
+                    alt=""
+                    loading="lazy"
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                  />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-black/25" />
+                <div className="absolute inset-x-2.5 bottom-2.5 text-white">
+                  {sh.caption && <p className="line-clamp-2 text-xs leading-snug">{sh.caption}</p>}
+                  {sh.product && (
+                    <p className="mt-1.5 truncate rounded-full bg-white/15 px-2 py-1 text-[10px] font-semibold backdrop-blur">
+                      View product · {sh.product.title}
+                    </p>
+                  )}
+                </div>
+              </button>
+            ))}
           </div>
         </div>
       )}
@@ -516,6 +583,9 @@ function StorefrontPage() {
       <StoreAssistant store={{ name: s.name, slug: s.slug, logo_url: s.logo_url, theme: s.theme, plan: s.plan }} />
       {storyOpen && liveStories.length > 0 && (
         <StoryViewer stories={liveStories} storeSlug={s.slug} storeName={s.name} logoUrl={s.logo_url} accent={accent} onClose={() => setStoryOpen(false)} />
+      )}
+      {shortsOpen && shorts.length > 0 && (
+        <StoryViewer stories={shorts} kind="short" startIndex={shortIdx} storeSlug={s.slug} storeName={s.name} logoUrl={s.logo_url} accent={accent} onClose={() => setShortsOpen(false)} />
       )}
       <div className="h-20" />
     </div>
