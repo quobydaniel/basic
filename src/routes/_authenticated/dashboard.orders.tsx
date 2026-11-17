@@ -179,7 +179,7 @@ function OrdersPage() {
                   className="rounded-full border border-border bg-background px-3 py-1.5 text-xs"
                   aria-label={`Status for order ${o.order_number}`}
                 >
-                  {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                  {STATUSES.map((s) => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
                 </select>
                 <div className="flex shrink-0 items-center gap-1.5">
                   {cancellable && (

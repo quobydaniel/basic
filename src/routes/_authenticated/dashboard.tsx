@@ -152,14 +152,14 @@ function DashboardLayout() {
           </div>
           <Outlet />
 
-          {/* Everything except Settings — settings stay on the desktop rail
-              (and /account) while Stories + Shorts stay thumb-reachable,
-              since sellers post statuses and shorts from their phones. */}
+          {/* Full nav incl. Settings — a phone-only seller must still reach
+              Paystack keys, AI persona and WhatsApp number; Stories + Shorts
+              stay thumb-reachable for posting on the go. */}
           <nav
             className="fixed inset-x-0 bottom-0 z-40 grid border-t border-border bg-background/95 backdrop-blur md:hidden"
-            style={{ paddingBottom: "env(safe-area-inset-bottom)", gridTemplateColumns: `repeat(${items.filter(({ to }) => to !== "/dashboard/settings").length}, minmax(0, 1fr))` }}
+            style={{ paddingBottom: "env(safe-area-inset-bottom)", gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
           >
-            {items.filter(({ to }) => to !== "/dashboard/settings").map(({ to, label, icon: Icon, exact }) => {
+            {items.map(({ to, label, icon: Icon, exact }) => {
               const active = exact ? pathname === to : pathname.startsWith(to);
               return (
                 <Link
