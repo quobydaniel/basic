@@ -501,7 +501,11 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   // Buyer icebreakers (Jiji-style) — only while the conversation is fresh.
   // msgs.isLoading is gated too: while loading, length reads 0 and the chips
   // would flash on threads that aren't actually fresh.
-  const showIcebreakers = !isSeller && !msgs.isLoading && (msgs.data?.length ?? 0) <= 1 && !aiTyping;
+  // Chips only while the buyer hasn't spoken yet — counting messages was
+  // wrong: right after the first send the thread has 1 message and the
+  // chips would stick around under the sent bubble.
+  const buyerSpoke = !!(msgs.data ?? []).some((m: { sender_id: string | null }) => m.sender_id === user?.id);
+  const showIcebreakers = !isSeller && !msgs.isLoading && !buyerSpoke && !aiTyping;
 
   // ── Smart preset questions (buyer favs + history) ──
   // Chips grounded in this buyer's REAL data for this store — a pending
