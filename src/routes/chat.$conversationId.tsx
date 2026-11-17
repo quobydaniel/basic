@@ -274,8 +274,12 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     if (store?.plan !== "pro" || !store?.auto_pilot) return;
     if (lastMsg.sender_id !== user.id) return;
     if (pilotFiredRef.current.has(lastMsg.id)) return;
-    pilotFiredRef.current.add(lastMsg.id);
     const t = setTimeout(() => {
+      // Mark INSIDE the timer: any background refetch replaces the msgs data
+      // (new lastMsg identity), which cancels + re-runs this effect — marking
+      // before the timeout meant one refetch inside the 1s window killed the
+      // offline trigger for good ("replies aint coming in").
+      pilotFiredRef.current.add(lastMsg.id);
       setAiTyping(true);
       replyAwaitRef.current = lastMsg.id;
       remoteReply({ data: { conversation_id: conversationId } })
@@ -292,11 +296,17 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   // cap so a dead AI never leaves it spinning forever.
   useEffect(() => {
     if (!aiTyping || !replyAwaitRef.current || !lastMsg) return;
-    if (lastMsg.id !== replyAwaitRef.current) {
-      replyAwaitRef.current = null;
-      setAiTyping(false);
+    if (lastMsg.id === replyAwaitRef.current) return;
+    // A newer message from THIS user while the AI is still drafting just
+    // extends the wait (rapid-fire "hi hi hi" must not kill the bubble) —
+    // only a message from the other side means the reply has landed.
+    if (lastMsg.sender_id === user?.id) {
+      replyAwaitRef.current = lastMsg.id;
+      return;
     }
-  }, [aiTyping, lastMsg]);
+    replyAwaitRef.current = null;
+    setAiTyping(false);
+  }, [aiTyping, lastMsg, user]);
 
   // ── SELLER side: automatic recap on AI deals ──
   // When the AI proposes an order (system_order proposal card), the recap
@@ -316,7 +326,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     const t = setTimeout(() => {
       replyAwaitRef.current = null;
       setAiTyping(false);
-    }, 30_000);
+    }, 45_000);
     return () => clearTimeout(t);
   }, [aiTyping]);
 
