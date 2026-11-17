@@ -148,16 +148,20 @@ export async function generateText(
       if (!key) break;
       tried.add(key);
       try {
-        // 40s bound per attempt: normal replies land in 4-15s; a hung or
-        // queued request hands over to the next key / OpenRouter fast.
+        // 70s bound per attempt: big engine prompts genuinely take 45-90s on
+        // NIM (prompt processing dominates), so too tight a bound aborts
+        // every healthy attempt — 70s keeps the working path alive while a
+        // truly hung request still hands over to the next key / OpenRouter.
         return await generateTextBase({
           ...params,
           model: nim(key)(modelId),
-          abortSignal: params.abortSignal ?? AbortSignal.timeout(40_000),
+          abortSignal: params.abortSignal ?? AbortSignal.timeout(70_000),
         });
       } catch (err) {
         lastErr = err;
+        const msg = String((err as { message?: unknown })?.message ?? err);
         if (!isProviderFailure(err)) throw err;
+        console.warn(`[ai-gateway] nvidia key .*${key.slice(-6)} failed (${Math.round((keyHealth.get(key)?.failedUntil ?? 0) > 0 ? 1 : 0)} benched): ${msg.slice(0, 160)}`);
         benchKey(key);
       }
     }
@@ -178,7 +182,29 @@ export async function generateText(
           });
         } catch (err) {
           lastErr = err;
+          const msg = String((err as { message?: unknown })?.message ?? err);
+          // Free OpenRouter accounts ration output tokens by remaining
+          // credits ("can only afford N") — retry the same key with a
+          // budget it CAN afford instead of dying.
+          const afford = msg.match(/can only afford (\d+)/i);
+          if (afford) {
+            try {
+              const budget = Math.max(120, Math.min(Number(afford[1]) - 16, Number(params.maxOutputTokens ?? afford[1])));
+              return await generateTextBase({
+                ...params,
+                model: openrouter(key)(fallbackId),
+                maxOutputTokens: budget,
+                abortSignal: params.abortSignal ?? AbortSignal.timeout(60_000),
+              });
+            } catch (err2) {
+              lastErr = err2;
+              if (!isProviderFailure(err2)) throw err2;
+              benchKey(key);
+              continue;
+            }
+          }
           if (!isProviderFailure(err)) throw err;
+          console.warn(`[ai-gateway] openrouter key .*${key.slice(-6)} failed: ${msg.slice(0, 160)}`);
           benchKey(key);
         }
       }
