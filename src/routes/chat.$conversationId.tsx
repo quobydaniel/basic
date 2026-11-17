@@ -502,7 +502,50 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   // msgs.isLoading is gated too: while loading, length reads 0 and the chips
   // would flash on threads that aren't actually fresh.
   const showIcebreakers = !isSeller && !msgs.isLoading && (msgs.data?.length ?? 0) <= 1 && !aiTyping;
-  const icebreakers = ["Is this still available?", "Do you deliver? Where to?", "What's your best price?"];
+
+  // ── Smart preset questions (buyer favs + history) ──
+  // Chips grounded in this buyer's REAL data for this store — a pending
+  // order becomes "Where is my order #…", a past order becomes "Reorder…",
+  // a favorited product becomes "Is X still available?" — with the Jiji-
+  // style generic three filling the rest. New buyers just see the generic.
+  const iceQ = useQuery({
+    queryKey: ["chat-icebreakers", convo.data?.buyer_id, convo.data?.store_id],
+    enabled: !isSeller && !!convo.data?.buyer_id && !!convo.data?.store_id,
+    queryFn: async () => {
+      const buyerId = convo.data!.buyer_id;
+      const storeId = convo.data!.store_id;
+      const [ordersQ, favsQ] = await Promise.all([
+        supabase
+          .from("orders")
+          .select("order_number, status")
+          .eq("buyer_id", buyerId)
+          .eq("store_id", storeId)
+          .order("created_at", { ascending: false })
+          .limit(5),
+        supabase
+          .from("favorites")
+          .select("product:products!inner(id, title, store_id)")
+          .eq("user_id", buyerId)
+          .eq("product.store_id", storeId)
+          .limit(5),
+      ]);
+      const orders = (ordersQ.data as { order_number: string | number; status: string }[] | null) ?? [];
+      const favs = (favsQ.data as unknown as { product: { title: string } }[] | null) ?? [];
+      return {
+        pending: orders.find((o) => o.status === "pending")?.order_number ?? null,
+        lastOrder: orders[0]?.order_number ?? null,
+        favTitle: favs[0]?.product?.title ?? null,
+      };
+    },
+  });
+  const icebreakers = [
+    iceQ.data?.pending ? `Where is my order #${iceQ.data.pending}?` : null,
+    iceQ.data?.lastOrder && !iceQ.data.pending ? `Reorder my last order — #${iceQ.data.lastOrder}` : null,
+    iceQ.data?.favTitle ? `Is ${iceQ.data.favTitle} still available?` : null,
+    "Is this still available?",
+    "Do you deliver? Where to?",
+    "What's your best price?",
+  ].filter(Boolean).slice(0, 4) as string[];
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
