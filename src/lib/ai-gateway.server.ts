@@ -24,6 +24,7 @@ const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_FALLBACK_BY_MODEL: Record<string, string> = {
   "minimaxai/minimax-m3.1-flash": "minimax/minimax-m3.1-flash",
   "meta/llama-3.2-90b-vision-instruct": "meta-llama/llama-4-maverick",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": "meta-llama/llama-4-maverick",
   "deepseek-ai/deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash",
   "nvidia/nemotron-3-super-120b-a12b": "nvidia/nemotron-3-super-120b-a12b",
 };
@@ -52,40 +53,143 @@ export function createNvidiaNimProvider(nvidiaApiKey: string) {
 }
 
 /**
- * Drop-in replacement for the AI SDK's `generateText` with one extra behaviour:
- * on a NVIDIA provider-level failure, retry once through OpenRouter with the
- * equivalent model (OPENROUTER_API_KEY from .env). App-level errors (validation,
- * permissions, missing context) are rethrown untouched.
+ * ── SMART ROUTING ──
+ * Key pools (comma-separated env values) with health-benched rotation.
+ * One dead/rate-limited key never takes a feature down and never stalls a
+ * reply: the wrapper rotates to the next healthy key immediately, benches
+ * the failing one (3 min, escalating to 10 min for repeat offenders), and
+ * only after the whole NVIDIA pool is benched falls through to OpenRouter.
+ */
+type KeyHealth = { failedUntil: number; fails: number };
+const keyHealth = new Map<string, KeyHealth>();
+
+function poolFrom(envValue: string | undefined): string[] {
+  return (envValue ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function nvidiaPool(): string[] {
+  // The pool includes every key; NVIDIA_API_KEY stays as a legacy fallback
+  // for callers that build their own provider.
+  const pool = poolFrom(process.env.NVIDIA_API_KEYS);
+  return pool.length ? pool : poolFrom(process.env.NVIDIA_API_KEY);
+}
+
+function openrouterPool(): string[] {
+  const pool = poolFrom(process.env.OPENROUTER_API_KEYS);
+  return pool.length ? pool : poolFrom(process.env.OPENROUTER_API_KEY);
+}
+
+function benchKey(key: string) {
+  const h = keyHealth.get(key) ?? { failedUntil: 0, fails: 0 };
+  h.fails += 1;
+  h.failedUntil = Date.now() + Math.min(180_000 * h.fails, 600_000);
+  keyHealth.set(key, h);
+}
+
+function pickKey(pool: string[], tried: Set<string>): string | null {
+  const now = Date.now();
+  const healthy = pool.filter(
+    (k) => !tried.has(k) && (keyHealth.get(k)?.failedUntil ?? 0) < now,
+  );
+  if (healthy.length) {
+    // Round-robin through the healthy keys so load spreads across the pool.
+    const idx = healthy.findIndex((k) => !tried.has(k));
+    return healthy[idx % healthy.length];
+  }
+  // Every key benched (or tried) → forgive the least-recently-failed one so
+  // we never dead-end; a 429 usually clears within minutes.
+  const rest = pool.filter((k) => !tried.has(k));
+  if (!rest.length) return null;
+  return rest.reduce((best, k) =>
+    (keyHealth.get(k)?.failedUntil ?? 0) < (keyHealth.get(best)?.failedUntil ?? 0) ? k : best,
+  );
+}
+
+function nim(key: string) {
+  return createOpenAICompatible({ name: "nvidia-nim", baseURL: NVIDIA_NIM_BASE_URL, headers: { Authorization: `Bearer ${key}` } });
+}
+
+function openrouter(key: string) {
+  return createOpenAICompatible({
+    name: "openrouter",
+    baseURL: OPENROUTER_BASE_URL,
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "HTTP-Referer": process.env.APP_URL ?? "http://localhost:3000",
+      "X-Title": "BASIC",
+    },
+  });
+}
+
+/**
+ * Drop-in replacement for the AI SDK's `generateText` with smart routing:
+ * NVIDIA key pool (health-benched, round-robin) → OpenRouter key pool with
+ * the model-equivalent fallback. Every attempt is time-bounded so a hung
+ * provider never stalls a reply. App-level errors (validation, permissions,
+ * missing context) are rethrown untouched.
  */
 export async function generateText(
   params: Parameters<typeof generateTextBase>[0],
 ): ReturnType<typeof generateTextBase> {
-  try {
-    // Bound the NVIDIA attempt: a hung/queued NIM request used to stall the
-    // caller for 60-90s before the fallback ever fired. Normal replies land
-    // in 4-15s; abort at 40s so the OpenRouter retry starts while the user
-    // is still watching the typing bubble.
-    return await generateTextBase({ ...params, abortSignal: params.abortSignal ?? AbortSignal.timeout(40_000) });
-  } catch (err) {
-    if (!isProviderFailure(err)) throw err;
-    const openrouterKey = process.env.OPENROUTER_API_KEY;
-    const nvidiaModelId = (params.model as { modelId?: unknown } | undefined)?.modelId;
-    const fallbackId =
-      typeof nvidiaModelId === "string" ? OPENROUTER_FALLBACK_BY_MODEL[nvidiaModelId] : undefined;
-    if (!openrouterKey || !fallbackId) throw err;
-    const openrouter = createOpenAICompatible({
-      name: "openrouter",
-      baseURL: OPENROUTER_BASE_URL,
-      headers: {
-        Authorization: `Bearer ${openrouterKey}`,
-        "HTTP-Referer": process.env.APP_URL ?? "http://localhost:3000",
-        "X-Title": "BASIC",
-      },
-    });
-    return await generateTextBase({
-      ...params,
-      model: openrouter(fallbackId),
-      abortSignal: params.abortSignal ?? AbortSignal.timeout(60_000),
-    });
+  const model = params.model as { provider?: unknown; modelId?: unknown } | undefined;
+  const modelId = typeof model?.modelId === "string" ? model.modelId : undefined;
+  const isNvidia =
+    typeof model?.provider === "string" && model.provider.startsWith("nvidia-nim") && Boolean(modelId);
+  let lastErr: unknown;
+
+  if (isNvidia && modelId) {
+    const keys = nvidiaPool();
+    const tried = new Set<string>();
+    for (let i = 0; i < Math.min(keys.length, 3); i++) {
+      const key = pickKey(keys, tried);
+      if (!key) break;
+      tried.add(key);
+      try {
+        // 40s bound per attempt: normal replies land in 4-15s; a hung or
+        // queued request hands over to the next key / OpenRouter fast.
+        return await generateTextBase({
+          ...params,
+          model: nim(key)(modelId),
+          abortSignal: params.abortSignal ?? AbortSignal.timeout(40_000),
+        });
+      } catch (err) {
+        lastErr = err;
+        if (!isProviderFailure(err)) throw err;
+        benchKey(key);
+      }
+    }
+    // NVIDIA pool exhausted → OpenRouter equivalent.
+    const fallbackId = OPENROUTER_FALLBACK_BY_MODEL[modelId];
+    const orKeys = openrouterPool();
+    const triedOr = new Set<string>();
+    if (fallbackId) {
+      for (let i = 0; i < Math.min(orKeys.length, 2); i++) {
+        const key = pickKey(orKeys, triedOr);
+        if (!key) break;
+        triedOr.add(key);
+        try {
+          return await generateTextBase({
+            ...params,
+            model: openrouter(key)(fallbackId),
+            abortSignal: params.abortSignal ?? AbortSignal.timeout(60_000),
+          });
+        } catch (err) {
+          lastErr = err;
+          if (!isProviderFailure(err)) throw err;
+          benchKey(key);
+        }
+      }
+    }
+    throw lastErr ?? new Error("All AI providers failed");
   }
+
+  // Non-NVIDIA models (e.g. a caller built an OpenRouter model directly):
+  // single bounded attempt.
+  return await generateTextBase({
+    ...params,
+    abortSignal: params.abortSignal ?? AbortSignal.timeout(60_000),
+  });
 }
