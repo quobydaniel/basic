@@ -297,6 +297,20 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
       setAiTyping(false);
     }
   }, [aiTyping, lastMsg]);
+
+  // ── SELLER side: automatic recap on AI deals ──
+  // When the AI proposes an order (system_order proposal card), the recap
+  // panel opens by itself — the seller confirms the deal without hunting
+  // through the ⋮ menu.
+  const recapAutoRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isSeller || !lastMsg) return;
+    if (lastMsg.kind !== "system_order") return;
+    if ((lastMsg.metadata as Record<string, unknown> | null)?.proposal !== "order") return;
+    if (recapAutoRef.current === lastMsg.id) return;
+    recapAutoRef.current = lastMsg.id;
+    loadRecap();
+  }, [isSeller, lastMsg]);
   useEffect(() => {
     if (!aiTyping) return;
     const t = setTimeout(() => {

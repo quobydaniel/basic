@@ -147,15 +147,9 @@ export async function runAutoPilot(
     .join("\n");
 
   // ── AI engagement rules (after BUYER MEMORY — they need the history) ──
-  // The store master switch answers NEW customers automatically; returning
-  // customers' chats get the AI only when the seller opted THIS chat in
-  // (thread Auto-pilot button → conversations.ai_enabled = true).
-  if (returning && conv.ai_enabled !== true) {
-    throw new Error("Returning customer — the master switch covers new customers only; the seller replies personally.");
-  }
-  // Seller-online grace: when the seller is live (heartbeat < 90s), give
-  // them ~6s to answer personally. If they did, stand down — the newest-
-  // message check below (and the RPC gate) refuses the AI reply.
+  // Presence is read ONCE here and feeds both the offline-cover rule and the
+  // seller-online grace window below.
+  let sellerOnline = false;
   try {
     const { data: sellerSeen } = await supabase
       .from("profiles")
@@ -163,8 +157,30 @@ export async function runAutoPilot(
       .eq("id", conv.seller_id)
       .maybeSingle();
     const seen = (sellerSeen as any)?.last_seen_at;
-    if (seen && Date.now() - new Date(seen).getTime() < 90_000) {
-      await new Promise((r) => setTimeout(r, 6000));
+    sellerOnline = Boolean(seen && Date.now() - new Date(seen).getTime() < 90_000);
+  } catch {
+    // A presence read failing (RLS pre-11-14d) just means "unknown" — treat
+    // the seller as online so we never steal a live conversation.
+    sellerOnline = true;
+  }
+
+  // The master switch answers NEW customers automatically. Returning
+  // customers get the AI too when the seller is OFFLINE — an unanswered
+  // returning buyer is worse than an AI reply — and when the seller opted
+  // THIS chat in (thread Auto-pilot button → conversations.ai_enabled).
+  if (conv.ai_enabled === false) {
+    throw new Error("Auto-pilot paused for this chat — the seller replies personally.");
+  }
+  if (returning && conv.ai_enabled !== true && sellerOnline) {
+    throw new Error("Returning customer — the seller is online and hasn't opted this chat into auto-pilot; they reply personally.");
+  }
+
+  // Seller-online grace: when the seller is live, give them ~6s to answer
+  // personally. If they did, stand down — the newest-message check below
+  // (and the RPC gate) refuses the AI reply.
+  if (sellerOnline) {
+    await new Promise((r) => setTimeout(r, 6000));
+    try {
       const { data: newest } = await supabase
         .from("messages")
         .select("sender_id")
@@ -174,11 +190,9 @@ export async function runAutoPilot(
       if ((newest ?? [])[0]?.sender_id !== conv.buyer_id) {
         throw new Error("Seller replied during the grace window — AI stands down.");
       }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("stands down")) throw e;
     }
-  } catch (e) {
-    // A presence read failing (RLS pre-11-14d) just means no grace delay —
-    // only the stand-down verdict stops the run.
-    if (e instanceof Error && e.message.includes("stands down")) throw e;
   }
 
   const key = process.env.NVIDIA_API_KEY;
@@ -293,7 +307,21 @@ CRITICAL: prices and stock only from the catalog (except a price the buyer thems
         metadata: { proposal: "order", ai: true, payload: { product_slug: prod.slug, product_title: prod.title, qty, variant, delivery: deliveryArea, payment: paymentTerm, unit_price: unit, total } },
       });
       const waDigits = String(st.whatsapp_number ?? "").replace(/\D/g, "");
-      const waText = `BASIC AI proposal needs your confirmation: ${qty}× ${prod.title} (${prod.currency ?? "GHS"} ${unit}${negotiated ? `, negotiated from ${listPrice}` : ""})${deliveryArea ? ` — deliver to ${deliveryArea}` : ""}${variant ? ` — ${variant}` : ""}. Buyer chat is in your dashboard.`;
+      // Full deterministic recap — the AI already closed the deal with the
+      // buyer, so the seller gets every term in one glance (notification
+      // body AND WhatsApp prefill) and confirms in the chat.
+      const recapLines = [
+        `AI closed a deal in "${conv.buyer_name ?? "a buyer"}" chat — needs your confirmation:`,
+        `• Deal: ${qty}× ${prod.title} @ ${prod.currency ?? "GHS"} ${unit}${negotiated ? ` (negotiated from ${prod.currency ?? "GHS"} ${listPrice})` : ""} = ${prod.currency ?? "GHS"} ${total}`,
+        variant ? `• Variant: ${variant}` : "",
+        deliveryArea ? `• Delivery: ${deliveryArea}` : "",
+        paymentTerm ? `• Payment: ${paymentTerm}` : "",
+        returning
+          ? `• Buyer: returning customer${daysKnown > 0 ? ` (${daysKnown} day${daysKnown === 1 ? "" : "s"} known)${orders.length ? `, ${orders.length} order${orders.length === 1 ? "" : "s"} so far` : ""}` : ""}`
+          : "• Buyer: first-time customer",
+        `Confirm it in your BASIC chat (Dashboard → Messages).`,
+      ].filter(Boolean).join("\n");
+      const waText = recapLines;
       // Best-effort: RLS may not let the buyer's session notify the seller —
       // the unread counters + dashboard heartbeat cover that case anyway.
       try {
@@ -301,8 +329,11 @@ CRITICAL: prices and stock only from the catalog (except a price the buyer thems
           user_id: st.owner_id ?? conv.seller_id,
           kind: "order",
           title: "AI has an order proposal — confirm it",
-          body: `${qty}× ${prod.title} · ${prod.currency ?? "GHS"} ${unit}${deliveryArea ? ` · ${deliveryArea}` : ""}`,
-          payload: { wa_link: waDigits ? `https://wa.me/${waDigits}?text=${encodeURIComponent(waText)}` : null },
+          body: `${qty}× ${prod.title} · ${prod.currency ?? "GHS"} ${total}${deliveryArea ? ` · ${deliveryArea}` : ""}`,
+          payload: {
+            conversation_id: conversationId,
+            wa_link: waDigits ? `https://wa.me/${waDigits}?text=${encodeURIComponent(waText)}` : null,
+          },
         });
       } catch {}
     }
