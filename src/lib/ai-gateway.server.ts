@@ -61,7 +61,11 @@ export async function generateText(
   params: Parameters<typeof generateTextBase>[0],
 ): ReturnType<typeof generateTextBase> {
   try {
-    return await generateTextBase(params);
+    // Bound the NVIDIA attempt: a hung/queued NIM request used to stall the
+    // caller for 60-90s before the fallback ever fired. Normal replies land
+    // in 4-15s; abort at 40s so the OpenRouter retry starts while the user
+    // is still watching the typing bubble.
+    return await generateTextBase({ ...params, abortSignal: params.abortSignal ?? AbortSignal.timeout(40_000) });
   } catch (err) {
     if (!isProviderFailure(err)) throw err;
     const openrouterKey = process.env.OPENROUTER_API_KEY;
@@ -78,6 +82,10 @@ export async function generateText(
         "X-Title": "BASIC",
       },
     });
-    return await generateTextBase({ ...params, model: openrouter(fallbackId) });
+    return await generateTextBase({
+      ...params,
+      model: openrouter(fallbackId),
+      abortSignal: params.abortSignal ?? AbortSignal.timeout(60_000),
+    });
   }
 }

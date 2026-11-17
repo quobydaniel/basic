@@ -103,6 +103,9 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   // The message the AI is currently answering — the bubble holds until a
   // NEWER message than this one arrives.
   const replyAwaitRef = useRef<string | null>(null);
+  // Count of engine calls genuinely in flight — the bubble lives exactly as
+  // long as the AI is actually working, not a fixed guess at its latency.
+  const pilotPendingRef = useRef(0);
   const [showOrderPanel, setShowOrderPanel] = useState(false);
   const [orderTotal, setOrderTotal] = useState("");
   const [fulfillment, setFulfillment] = useState("meet_in_person");
@@ -261,9 +264,13 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     autoRef.current = lastMsg.id;
     setAiTyping(true);
     replyAwaitRef.current = lastMsg.id;
+    pilotPendingRef.current++;
     autoPilot({ data: { conversation_id: conversationId } })
       .catch(() => {}) // the bubble-clear effect below owns turning it off
-      .finally(() => qc.invalidateQueries({ queryKey: ["msgs", conversationId] }));
+      .finally(() => {
+        pilotPendingRef.current--;
+        qc.invalidateQueries({ queryKey: ["msgs", conversationId] });
+      });
   }, [user, convo.data, lastMsg, conversationId, autoPilot, autoPilotOn]);
 
   // ── BUYER side: the offline-seller auto-reply ──
@@ -285,9 +292,13 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     // a refetch inside that window cancelled the timer entirely (the reply
     // only showed up after a page refresh). Invalidate in .finally: even a
     // refused run (heartbeat/seller answered first) must refetch the thread.
+    pilotPendingRef.current++;
     remoteReply({ data: { conversation_id: conversationId } })
       .catch(() => {}) // silent by design — the seller's AI failing must never look like the buyer's fault
-      .finally(() => qc.invalidateQueries({ queryKey: ["msgs", conversationId] }));
+      .finally(() => {
+        pilotPendingRef.current--;
+        qc.invalidateQueries({ queryKey: ["msgs", conversationId] });
+      });
   }, [user, convo.data, lastMsg, isSeller, conversationId, remoteReply, qc, meta]);
 
   // The typing bubble must OUTLIVE the request: the reply message only
@@ -322,13 +333,31 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     recapAutoRef.current = lastMsg.id;
     loadRecap();
   }, [isSeller, lastMsg]);
+  // Hard-stops the bubble when the engine is NOT working: while a run is
+  // actually in flight the bubble stays (NVIDIA can take 40s + OpenRouter
+  // fallback after it); once settled with no reply, give the 2.5s polling
+  // above a moment to surface a reply delivered by another surface, then
+  // retire it. 3-minute ceiling kills a truly wedged engine.
   useEffect(() => {
     if (!aiTyping) return;
-    const t = setTimeout(() => {
-      replyAwaitRef.current = null;
-      setAiTyping(false);
-    }, 45_000);
-    return () => clearTimeout(t);
+    const started = Date.now();
+    let settledAt = 0;
+    const iv = setInterval(() => {
+      if (pilotPendingRef.current > 0) {
+        settledAt = 0;
+        if (Date.now() - started > 180_000) {
+          replyAwaitRef.current = null;
+          setAiTyping(false);
+        }
+        return;
+      }
+      if (!settledAt) settledAt = Date.now();
+      if (Date.now() - settledAt > 6000) {
+        replyAwaitRef.current = null;
+        setAiTyping(false);
+      }
+    }, 2000);
+    return () => clearInterval(iv);
   }, [aiTyping]);
 
   // Toggle: seller flips the store's auto-pilot from the thread header.
