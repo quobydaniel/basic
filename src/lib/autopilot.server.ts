@@ -171,7 +171,11 @@ export async function runAutoPilot(
   if (conv.ai_enabled === false) {
     throw new Error("Auto-pilot paused for this chat — the seller replies personally.");
   }
-  if (returning && conv.ai_enabled !== true && sellerOnline) {
+  // Offline-cover rule for the BUYER-triggered path only: a returning buyer
+  // whose seller is online and hasn't opted this chat in gets no AI. The
+  // seller-side path ("direct") already means the seller is watching with
+  // auto-pilot ON — never second-guess that choice here.
+  if (delivery === "rpc" && returning && conv.ai_enabled !== true && sellerOnline) {
     throw new Error("Returning customer — the seller is online and hasn't opted this chat into auto-pilot; they reply personally.");
   }
 
