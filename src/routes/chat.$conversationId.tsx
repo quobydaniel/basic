@@ -253,6 +253,10 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     if (convo.data.seller_id !== user.id) return;
     if (!autoPilotOn) return;
     if (lastMsg.sender_id === user.id) return;
+    // Null sender = system card (the AI's own proposal/cancel notice) —
+    // answering our own output would self-loop and show a phantom
+    // "AI is replying…" bubble.
+    if (!lastMsg.sender_id) return;
     if (autoRef.current === lastMsg.id) return;
     autoRef.current = lastMsg.id;
     setAiTyping(true);

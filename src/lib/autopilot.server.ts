@@ -180,23 +180,25 @@ export async function runAutoPilot(
   }
 
   // Seller-online grace: when the seller is live, give them ~2s to answer
-  // personally. If they did, stand down — the newest-message check below
-  // (and the RPC gate) refuses the AI reply.
-  if (sellerOnline) {
-    await new Promise((r) => setTimeout(r, 2000));
-    try {
-      const { data: newest } = await supabase
-        .from("messages")
-        .select("sender_id")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if ((newest ?? [])[0]?.sender_id !== conv.buyer_id) {
-        throw new Error("Seller replied during the grace window — AI stands down.");
-      }
-    } catch (e) {
-      if (e instanceof Error && e.message.includes("stands down")) throw e;
+  // personally.
+  if (sellerOnline) await new Promise((r) => setTimeout(r, 2000));
+  // Newest-message gate (unconditional): the AI only ever answers the
+  // buyer's latest word. Seller texts and null-sender system cards are the
+  // AI's own output — a trigger landing on one is stale, and answering it
+  // would self-loop. Catches it here before an NVIDIA call is spent (the
+  // RPC gate would refuse the insert anyway).
+  try {
+    const { data: newest } = await supabase
+      .from("messages")
+      .select("sender_id")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if ((newest ?? [])[0]?.sender_id !== conv.buyer_id) {
+      throw new Error("Nothing new to answer — the buyer is no longer the last speaker. AI stands down.");
     }
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("stands down")) throw e;
   }
 
   const key = process.env.NVIDIA_API_KEY;
