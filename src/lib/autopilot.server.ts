@@ -37,7 +37,62 @@ export async function resolveModel(supabase: AnySupabase, fn: AiFnName) {
   return AI_MODELS[fn];
 }
 
+// ── SERVER-SIDE THROTTLES ──
+// The client guards (fired-maps, one trigger per message) don't protect the
+// server function from direct calls. Free-tier quota is the scarce resource
+// for the whole platform, so the engine itself rate-limits:
+//   1) Caller concurrency cap — one account can't run the engine wide-open
+//      across many conversations at once (scripted abuse burns the pool).
+//   2) Per-conversation cooldown — while the AI's answer is younger than a
+//      few seconds, a re-run is refused (a spammer hitting one thread still
+//      pays at most one generation per window).
+const callerRuns = new Map<string, number>();
+
 export async function runAutoPilot(
+  supabase: AnySupabase,
+  opts: {
+    conversationId: string;
+    callerId: string;
+    /** "direct" = caller IS the seller (RLS-clean insert); "rpc" = caller is
+        the buyer — messages land via basic_autopilot_send as the seller. */
+    delivery: "direct" | "rpc";
+  },
+): Promise<{ reply: string; order_number: string | null }> {
+  const { conversationId, callerId } = opts;
+  const inFlight = callerRuns.get(callerId) ?? 0;
+  if (inFlight >= 3) throw new Error("Too many AI runs at once for this account — try again in a moment.");
+  const { data: lastMsg } = await supabase
+    .from("messages")
+    .select("created_at, sender_id, kind")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const last: any = (lastMsg ?? [])[0];
+  const { data: convoRow } = await supabase
+    .from("conversations")
+    .select("seller_id")
+    .eq("id", conversationId)
+    .maybeSingle();
+  const sellerId = (convoRow as any)?.seller_id as string | undefined;
+  if (
+    last &&
+    sellerId &&
+    Date.now() - new Date(last.created_at).getTime() < 10_000 &&
+    (last.sender_id === sellerId || (last.sender_id === null && last.kind === "system_order"))
+  ) {
+    throw new Error("The AI just replied to this chat — give it a few seconds.");
+  }
+  callerRuns.set(callerId, inFlight + 1);
+  try {
+    return await runAutoPilotEngine(supabase, opts);
+  } finally {
+    const n = (callerRuns.get(callerId) ?? 1) - 1;
+    if (n <= 0) callerRuns.delete(callerId);
+    else callerRuns.set(callerId, n);
+  }
+}
+
+async function runAutoPilotEngine(
   supabase: AnySupabase,
   opts: {
     conversationId: string;
