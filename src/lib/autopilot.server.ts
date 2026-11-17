@@ -65,14 +65,16 @@ export async function runAutoPilot(
   // Per-chat pause — the thread header's Auto-pilot button writes this.
   if (conv.ai_enabled === false) throw new Error("AI paused for this chat by the seller.");
 
-  // Long memory: the last 40 messages (≈ a week of haggling), not 12 — the
-  // AI kept re-greeting returning buyers and re-asking answered questions.
+  // Long memory: the last 20 messages (≈ 3 days of haggling), not 40 — the
+  // prompt-processing cost of every extra message is the biggest chunk of
+  // reply latency on NIM, and the BUYER MEMORY block already carries the
+  // durable context (orders, first contact, open order).
   const { data: msgs } = await supabase
     .from("messages")
     .select("sender_id, body, kind, created_at")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: false })
-    .limit(40);
+    .limit(20);
   const chat = (msgs ?? []).reverse();
   const lastMessage = chat[chat.length - 1];
   if (!lastMessage || lastMessage.sender_id !== conv.buyer_id) throw new Error("Nothing to reply to");
@@ -212,7 +214,7 @@ CATALOG (live data — never invent products, prices, or stock):
 ${catalog}${listingLine}${floorLine}${personaLine}${greetingLine}
 Store location: ${[st.area, st.city || st.region].filter(Boolean).join(", ") || "Ghana"}. Payment options: ${JSON.stringify(st.payment_terms ?? [])}.
 ${memoryBlock}
-CONTINUITY RULES: you have the whole chat (up to 40 recent messages) plus the BUYER MEMORY above. Never re-introduce yourself or re-greet a returning buyer like a stranger. Never re-ask a question the buyer already answered — check the history first. If you promised something earlier (a price, a callback), stay consistent with it or explicitly correct it ("Quick correction — earlier I said X, the right figure is Y"). When the buyer asks "what did the seller say", answer from the open order / memory, never with a canned deflection.
+CONTINUITY RULES: you have the recent chat plus the BUYER MEMORY above. Never re-introduce yourself or re-greet a returning buyer like a stranger. Never re-ask a question the buyer already answered — check the history first. If you promised something earlier (a price, a callback), stay consistent with it or explicitly correct it ("Quick correction — earlier I said X, the right figure is Y"). When the buyer asks "what did the seller say", answer from the open order / memory, never with a canned deflection.
 CHANGE REQUESTS (be honest about what you can do): you CANNOT edit an order that's already placed — only the seller can change quantity, price, delivery or payment when they confirm it. When the buyer asks to change something on a pending order, say plainly: "Noted — I've flagged the change (1 copy instead of 2) for the seller to update when they confirm your order #X." Never say "I've changed it", never imply it's done, and don't ask them to order again.
 PHOTOS: you cannot see images. When the transcript shows a photo marker, never say the photo "didn't come through" and never ask the buyer to resend — the buyer sent it fine; you just can't view it. Acknowledge it naturally ("Noted, thanks for the photo — the seller will review it when they confirm") and address whatever else is open.
 HOW TO SELL LIKE A HUMAN: warm, brief (1-3 sentences), Ghana-marketplace tone. Answer questions from the catalog. For products marked "price negotiable", agree on a number like a real shopkeeper: welcome the buyer's offer, counter once if it's far below list, and once the buyer settles on a figure, that IS the deal price — pass it in ORDER_READY (price=<their number>).

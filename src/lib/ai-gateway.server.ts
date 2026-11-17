@@ -124,13 +124,35 @@ function openrouter(key: string) {
   });
 }
 
+/** First fulfillment wins; losers are aborted by the caller's controller. */
+function firstSuccess<T>(promises: Promise<T>[]): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let pending = promises.length;
+    let lastErr: unknown;
+    if (!pending) {
+      reject(new Error("no attempts"));
+      return;
+    }
+    for (const p of promises) {
+      Promise.resolve(p).then(resolve, (e) => {
+        lastErr = e;
+        if (--pending === 0) reject(lastErr);
+      });
+    }
+  });
+}
+
 /**
- * Drop-in replacement for the AI SDK's `generateText` with smart routing:
- * NVIDIA key pool (health-benched, round-robin) → OpenRouter key pool with
- * the model-equivalent fallback. Every attempt is time-bounded so a hung
- * provider never stalls a reply. App-level errors (validation, permissions,
- * missing context) are rethrown untouched.
+ * Drop-in replacement for the AI SDK's `generateText` with smart routing —
+ * RACE, don't wait: two healthy NVIDIA keys run the same prompt at once and
+ * the first answer wins (NIM queue times swing 5-90s; the fastest of two
+ * queues is almost always quick). If NVIDIA hasn't answered within 25s the
+ * OpenRouter equivalent joins the race, so the worst case is ~25s + OR
+ * latency instead of serial 40s×N. Losers are aborted on settle. App-level
+ * errors (validation, permissions, missing context) are rethrown untouched.
  */
+const OR_JOIN_DELAY_MS = 25_000;
+
 export async function generateText(
   params: Parameters<typeof generateTextBase>[0],
 ): ReturnType<typeof generateTextBase> {
@@ -138,84 +160,97 @@ export async function generateText(
   const modelId = typeof model?.modelId === "string" ? model.modelId : undefined;
   const isNvidia =
     typeof model?.provider === "string" && model.provider.startsWith("nvidia-nim") && Boolean(modelId);
-  let lastErr: unknown;
 
-  if (isNvidia && modelId) {
-    const keys = nvidiaPool();
-    const tried = new Set<string>();
-    for (let i = 0; i < Math.min(keys.length, 3); i++) {
-      const key = pickKey(keys, tried);
-      if (!key) break;
-      tried.add(key);
-      try {
-        // 70s bound per attempt: big engine prompts genuinely take 45-90s on
-        // NIM (prompt processing dominates), so too tight a bound aborts
-        // every healthy attempt — 70s keeps the working path alive while a
-        // truly hung request still hands over to the next key / OpenRouter.
-        return await generateTextBase({
-          ...params,
-          model: nim(key)(modelId),
-          abortSignal: params.abortSignal ?? AbortSignal.timeout(70_000),
-        });
-      } catch (err) {
-        lastErr = err;
-        const msg = String((err as { message?: unknown })?.message ?? err);
-        if (!isProviderFailure(err)) throw err;
-        console.warn(`[ai-gateway] nvidia key .*${key.slice(-6)} failed (${Math.round((keyHealth.get(key)?.failedUntil ?? 0) > 0 ? 1 : 0)} benched): ${msg.slice(0, 160)}`);
-        benchKey(key);
-      }
-    }
-    // NVIDIA pool exhausted → OpenRouter equivalent.
-    const fallbackId = OPENROUTER_FALLBACK_BY_MODEL[modelId];
-    const orKeys = openrouterPool();
-    const triedOr = new Set<string>();
-    if (fallbackId) {
-      for (let i = 0; i < Math.min(orKeys.length, 2); i++) {
-        const key = pickKey(orKeys, triedOr);
-        if (!key) break;
-        triedOr.add(key);
+  if (!isNvidia || !modelId) {
+    // Non-NVIDIA models (e.g. a caller built an OpenRouter model directly):
+    // single bounded attempt.
+    return await generateTextBase({
+      ...params,
+      abortSignal: params.abortSignal ?? AbortSignal.timeout(60_000),
+    });
+  }
+
+  const fallbackId = OPENROUTER_FALLBACK_BY_MODEL[modelId];
+  const stop = new AbortController();
+
+  const attemptNvidia = (key: string) =>
+    generateTextBase({
+      ...params,
+      model: nim(key)(modelId),
+      abortSignal: params.abortSignal ?? stop.signal,
+    }).catch((err) => {
+      const msg = String((err as { message?: unknown })?.message ?? err);
+      if (!isProviderFailure(err)) throw err;
+      console.warn(`[ai-gateway] nvidia key .*${key.slice(-6)} failed: ${msg.slice(0, 140)}`);
+      benchKey(key);
+      throw err;
+    });
+
+  // Two healthy keys race; a third stays in reserve for the bench logic.
+  const keys = nvidiaPool();
+  const racers: Promise<Awaited<ReturnType<typeof generateTextBase>>>[] = [];
+  const usedNvidia = new Set<string>();
+  for (let i = 0; i < Math.min(keys.length, 2); i++) {
+    const key = pickKey(keys, usedNvidia);
+    if (!key) break;
+    usedNvidia.add(key);
+    racers.push(attemptNvidia(key));
+  }
+  const orKeys = openrouterPool();
+  const orKey = pickKey(orKeys, new Set());
+  if (fallbackId && orKey) {
+    racers.push(
+      (async () => {
+        // Head start for NVIDIA — OpenRouter only joins if NVIDIA is slow.
+        await new Promise((r) => setTimeout(r, OR_JOIN_DELAY_MS));
         try {
           return await generateTextBase({
             ...params,
-            model: openrouter(key)(fallbackId),
-            abortSignal: params.abortSignal ?? AbortSignal.timeout(60_000),
+            model: openrouter(orKey)(fallbackId),
+            abortSignal: params.abortSignal ?? stop.signal,
           });
         } catch (err) {
-          lastErr = err;
           const msg = String((err as { message?: unknown })?.message ?? err);
+          if (/abort/i.test(msg)) throw err; // loser cancelled by the winner
           // Free OpenRouter accounts ration output tokens by remaining
-          // credits ("can only afford N") — retry the same key with a
-          // budget it CAN afford instead of dying.
+          // credits ("can only afford N") — retry with a budget it CAN
+          // afford instead of dying.
           const afford = msg.match(/can only afford (\d+)/i);
-          if (afford) {
-            try {
-              const budget = Math.max(120, Math.min(Number(afford[1]) - 16, Number(params.maxOutputTokens ?? afford[1])));
-              return await generateTextBase({
-                ...params,
-                model: openrouter(key)(fallbackId),
-                maxOutputTokens: budget,
-                abortSignal: params.abortSignal ?? AbortSignal.timeout(60_000),
-              });
-            } catch (err2) {
-              lastErr = err2;
-              if (!isProviderFailure(err2)) throw err2;
-              benchKey(key);
-              continue;
-            }
-          }
-          if (!isProviderFailure(err)) throw err;
-          console.warn(`[ai-gateway] openrouter key .*${key.slice(-6)} failed: ${msg.slice(0, 160)}`);
-          benchKey(key);
+          if (!afford) throw err;
+          const budget = Math.max(
+            120,
+            Math.min(Number(afford[1]) - 16, Number(params.maxOutputTokens ?? afford[1])),
+          );
+          return await generateTextBase({
+            ...params,
+            model: openrouter(orKey)(fallbackId),
+            maxOutputTokens: budget,
+            abortSignal: params.abortSignal ?? stop.signal,
+          });
         }
-      }
-    }
-    throw lastErr ?? new Error("All AI providers failed");
+      })().catch((err) => {
+        const msg = String((err as { message?: unknown })?.message ?? err);
+        if (!/abort/i.test(msg)) {
+          console.warn(`[ai-gateway] openrouter fallback failed: ${msg.slice(0, 140)}`);
+        }
+        throw err;
+      }),
+    );
   }
 
-  // Non-NVIDIA models (e.g. a caller built an OpenRouter model directly):
-  // single bounded attempt.
-  return await generateTextBase({
-    ...params,
-    abortSignal: params.abortSignal ?? AbortSignal.timeout(60_000),
-  });
+  try {
+    const winner = await firstSuccess(racers);
+    stop.abort(); // cancel the losers — stop burning provider compute
+    return winner;
+  } catch (err) {
+    // Every racer failed → one reserved NVIDIA key retry, serial, before
+    // giving up (covers "all raced keys were benched mid-race").
+    const reserve = pickKey(keys, usedNvidia);
+    if (!reserve) throw err;
+    return await generateTextBase({
+      ...params,
+      model: nim(reserve)(modelId),
+      abortSignal: params.abortSignal ?? AbortSignal.timeout(70_000),
+    });
+  }
 }
