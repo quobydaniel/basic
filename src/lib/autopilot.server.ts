@@ -204,6 +204,9 @@ export async function runAutoPilot(
     : "";
   const result = await generateText({
     model,
+    // Replies are 1-3 sentences by rule — cap output so reasoning models
+    // can't burn 30s wandering before the short answer ships.
+    maxOutputTokens: 600,
     instructions: `${identity} The seller has auto-pilot ON — you handle this conversation end-to-end.
 CATALOG (live data — never invent products, prices, or stock):
 ${catalog}${listingLine}${floorLine}${personaLine}${greetingLine}
