@@ -175,11 +175,11 @@ export async function runAutoPilot(
     throw new Error("Returning customer — the seller is online and hasn't opted this chat into auto-pilot; they reply personally.");
   }
 
-  // Seller-online grace: when the seller is live, give them ~6s to answer
+  // Seller-online grace: when the seller is live, give them ~2s to answer
   // personally. If they did, stand down — the newest-message check below
   // (and the RPC gate) refuses the AI reply.
   if (sellerOnline) {
-    await new Promise((r) => setTimeout(r, 6000));
+    await new Promise((r) => setTimeout(r, 2000));
     try {
       const { data: newest } = await supabase
         .from("messages")
@@ -250,6 +250,26 @@ CRITICAL: prices and stock only from the catalog (except a price the buyer thems
   let reply = result.text.trim();
   let orderNumber: string | null = null;
   let systemCards: { body: string; metadata: any }[] = [];
+
+  // POST-GENERATION RACE GUARD: several surfaces (open thread × N tabs,
+  // dashboard heartbeat, buyer trigger) can run this engine at once. The
+  // RPC's last-message gate catches most losers, but machine actions (order
+  // cancel, proposal cards) bypass it via plain inserts — so re-check that
+  // the buyer is STILL the last speaker before acting on the reply.
+  try {
+    const { data: lastNow } = await supabase
+      .from("messages")
+      .select("sender_id")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if ((lastNow ?? [])[0]?.sender_id !== conv.buyer_id) {
+      console.log("[autopilot] post-generation stand-down: buyer is no longer the last speaker — another surface answered");
+      return { reply: "", order_number: null };
+    }
+  } catch {
+    // Can't verify → proceed; the RPC gate still guards the text.
+  }
   const om = reply.match(/ORDER_READY:\s*product_slug=([^\s|]+)\s*\|\s*qty=(\d+)\s*\|\s*variant=([^|]*)\s*\|\s*delivery=([^|]*)\s*\|\s*payment=([^|]*)\s*(?:\|\s*price=([^|\s]*))?\s*$/);
   const cm = reply.match(/CANCEL_REQUEST:\s*order_number=([^\s|]+)\s*$/);
   reply = reply.replace(/ORDER_READY:[\s\S]*$/, "").replace(/CANCEL_REQUEST:[\s\S]*$/, "").trim();
@@ -440,12 +460,28 @@ CRITICAL: prices and stock only from the catalog (except a price the buyer thems
         p_metadata: metadata,
       })
       .then((r: any) => r, (e: any) => ({ error: e }));
-    if (!rpcErr) return;
+    if (!rpcErr) {
+      console.log(`[autopilot] delivered via rpc (${m.kind})`);
+      return;
+    }
     const missing = /Could not find the function|PGRST202/i.test(String(rpcErr.message ?? ""));
     if (!missing) {
       // Gate refusal (nothing to reply to / not participant) — another surface
-      // already answered, or this call is not allowed. Log and stop.
-      console.error("[autopilot] rpc insert refused:", rpcErr.message);
+      // already answered, or this call is not allowed. Diagnose WHO holds the
+      // last-message slot, then log and stop.
+      let who = "unknown";
+      try {
+        const { data: last } = await supabase
+          .from("messages")
+          .select("sender_id, kind, created_at")
+          .eq("conversation_id", conversationId)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        const l = (last ?? [])[0];
+        if (l)
+          who = `sender=${l.sender_id === null ? "SYSTEM(null)" : l.sender_id === conv.seller_id ? "seller" : l.sender_id === conv.buyer_id ? "buyer" : l.sender_id} kind=${l.kind} at=${l.created_at}`;
+      } catch {}
+      console.error("[autopilot] rpc insert refused:", rpcErr.message, "| last message now:", who);
       return;
     }
     if (delivery !== "direct") {
