@@ -179,9 +179,11 @@ export async function runAutoPilot(
     throw new Error("Returning customer — the seller is online and hasn't opted this chat into auto-pilot; they reply personally.");
   }
 
-  // Seller-online grace: when the seller is live, give them ~2s to answer
-  // personally.
-  if (sellerOnline) await new Promise((r) => setTimeout(r, 2000));
+  // No artificial grace sleep — it added dead latency to EVERY reply and the
+  // correctness it tried to buy is already guaranteed twice: the newest-
+  // message gate below (before we spend an NVIDIA call) and the RPC's
+  // last-message gate (before anything inserts). A seller typing mid-
+  // generation claims the slot; the AI's insert is refused.
   // Newest-message gate (unconditional): the AI only ever answers the
   // buyer's latest word. Seller texts and null-sender system cards are the
   // AI's own output — a trigger landing on one is stale, and answering it

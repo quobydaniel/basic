@@ -262,8 +262,8 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     setAiTyping(true);
     replyAwaitRef.current = lastMsg.id;
     autoPilot({ data: { conversation_id: conversationId } })
-      .then(() => qc.invalidateQueries({ queryKey: ["msgs", conversationId] }))
-      .catch(() => {}); // the bubble-clear effect below owns turning it off
+      .catch(() => {}) // the bubble-clear effect below owns turning it off
+      .finally(() => qc.invalidateQueries({ queryKey: ["msgs", conversationId] }));
   }, [user, convo.data, lastMsg, conversationId, autoPilot, autoPilotOn]);
 
   // ── BUYER side: the offline-seller auto-reply ──
@@ -278,19 +278,16 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     if (store?.plan !== "pro" || !store?.auto_pilot) return;
     if (lastMsg.sender_id !== user.id) return;
     if (pilotFiredRef.current.has(lastMsg.id)) return;
-    const t = setTimeout(() => {
-      // Mark INSIDE the timer: any background refetch replaces the msgs data
-      // (new lastMsg identity), which cancels + re-runs this effect — marking
-      // before the timeout meant one refetch inside the 1s window killed the
-      // offline trigger for good ("replies aint coming in").
-      pilotFiredRef.current.add(lastMsg.id);
-      setAiTyping(true);
-      replyAwaitRef.current = lastMsg.id;
-      remoteReply({ data: { conversation_id: conversationId } })
-        .then(() => qc.invalidateQueries({ queryKey: ["msgs", conversationId] }))
-        .catch(() => {}); // silent by design — the seller's AI failing must never look like the buyer's fault
-    }, 1000);
-    return () => clearTimeout(t);
+    pilotFiredRef.current.add(lastMsg.id);
+    setAiTyping(true);
+    replyAwaitRef.current = lastMsg.id;
+    // Fire immediately — the 1s "feels human" delay read as broken lag, and
+    // a refetch inside that window cancelled the timer entirely (the reply
+    // only showed up after a page refresh). Invalidate in .finally: even a
+    // refused run (heartbeat/seller answered first) must refetch the thread.
+    remoteReply({ data: { conversation_id: conversationId } })
+      .catch(() => {}) // silent by design — the seller's AI failing must never look like the buyer's fault
+      .finally(() => qc.invalidateQueries({ queryKey: ["msgs", conversationId] }));
   }, [user, convo.data, lastMsg, isSeller, conversationId, remoteReply, qc, meta]);
 
   // The typing bubble must OUTLIVE the request: the reply message only
