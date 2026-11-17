@@ -147,36 +147,16 @@ export async function runAutoPilot(
     .join("\n");
 
   // ── AI engagement rules (after BUYER MEMORY — they need the history) ──
-  // Presence is read ONCE here and feeds both the offline-cover rule and the
-  // seller-online grace window below.
-  let sellerOnline = false;
-  try {
-    const { data: sellerSeen } = await supabase
-      .from("profiles")
-      .select("last_seen_at")
-      .eq("id", conv.seller_id)
-      .maybeSingle();
-    const seen = (sellerSeen as any)?.last_seen_at;
-    sellerOnline = Boolean(seen && Date.now() - new Date(seen).getTime() < 90_000);
-  } catch {
-    // A presence read failing (RLS pre-11-14d) just means "unknown" — treat
-    // the seller as online so we never steal a live conversation.
-    sellerOnline = true;
-  }
-
-  // The master switch answers NEW customers automatically. Returning
-  // customers get the AI too when the seller is OFFLINE — an unanswered
-  // returning buyer is worse than an AI reply — and when the seller opted
-  // THIS chat in (thread Auto-pilot button → conversations.ai_enabled).
+  // NO presence gate on purpose: the seller being online must never make a
+  // buyer wait. The old "returning buyer + seller online → stand down" rule
+  // sounded polite but meant the buyer sat waiting for the seller's
+  // dashboard heartbeat poll (minutes) while the UI promised "✦ AI on duty".
+  // The controls are explicit now: the store master switch (auto_pilot) and
+  // the per-chat pause (ai_enabled === false). The newest-message gate and
+  // the RPC last-message gate already stop the AI from talking over a
+  // seller who is typing a personal reply.
   if (conv.ai_enabled === false) {
     throw new Error("Auto-pilot paused for this chat — the seller replies personally.");
-  }
-  // Offline-cover rule for the BUYER-triggered path only: a returning buyer
-  // whose seller is online and hasn't opted this chat in gets no AI. The
-  // seller-side path ("direct") already means the seller is watching with
-  // auto-pilot ON — never second-guess that choice here.
-  if (delivery === "rpc" && returning && conv.ai_enabled !== true && sellerOnline) {
-    throw new Error("Returning customer — the seller is online and hasn't opted this chat into auto-pilot; they reply personally.");
   }
 
   // No artificial grace sleep — it added dead latency to EVERY reply and the
