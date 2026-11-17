@@ -108,6 +108,87 @@ function pickKey(pool: string[], tried: Set<string>): string | null {
   );
 }
 
+// ── FREE-TIER RATIONING ──
+// Many users share a handful of free keys, so the router budgets proactively
+// instead of discovering limits via 429s: each key gets a sliding-window RPM
+// budget (NVIDIA) / daily budget (OpenRouter). Under load the router adapts —
+// hedged racing and the OpenRouter speed-rescue turn OFF so quota outlasts
+// the day, and requests queue for the next window instead of erroring.
+const RPM_WINDOW_MS = 60_000;
+const DAY_MS = 86_400_000;
+const nvidiaRpm = new Map<string, number[]>(); // key -> request timestamps
+const orDaily = new Map<string, { day: number; count: number }>();
+
+const num = (v: string | undefined, dflt: number) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : dflt;
+};
+const nvidiaBudgetPerKey = () => num(process.env.NVIDIA_RPM_PER_KEY, 40); // NIM free tier ≈ 40 rpm
+const orDailyPerKey = () => num(process.env.OPENROUTER_DAILY_PER_KEY, 50); // OR free tier = 50/day
+
+function pruneNvidia(key: string): number[] {
+  const now = Date.now();
+  const arr = (nvidiaRpm.get(key) ?? []).filter((t) => now - t < RPM_WINDOW_MS);
+  nvidiaRpm.set(key, arr);
+  return arr;
+}
+
+function nvidiaSlotsLeft(key: string): number {
+  return Math.max(0, nvidiaBudgetPerKey() - pruneNvidia(key).length);
+}
+
+function recordNvidia(key: string) {
+  pruneNvidia(key).push(Date.now());
+}
+
+function orSlotsLeft(key: string): number {
+  const today = Math.floor(Date.now() / DAY_MS);
+  const rec = orDaily.get(key);
+  if (!rec || rec.day !== today) {
+    orDaily.set(key, { day: today, count: 0 });
+    return orDailyPerKey();
+  }
+  return Math.max(0, orDailyPerKey() - rec.count);
+}
+
+function recordOr(key: string) {
+  const today = Math.floor(Date.now() / DAY_MS);
+  const rec = orDaily.get(key);
+  if (!rec || rec.day !== today) orDaily.set(key, { day: today, count: 1 });
+  else rec.count += 1;
+}
+
+/** Total NVIDIA requests in the current minute — the load signal. */
+function nvidiaRpmNow(): number {
+  return nvidiaPool().reduce((sum, k) => sum + pruneNvidia(k).length, 0);
+}
+
+/** Pick the key with the most free budget (ties → round-robin-ish first). */
+function pickBudgetedKey(pool: string[], tried: Set<string>, slotsOf: (k: string) => number): string | null {
+  const now = Date.now();
+  const candidates = pool.filter(
+    (k) => !tried.has(k) && (keyHealth.get(k)?.failedUntil ?? 0) < now,
+  );
+  if (!candidates.length) return pickKey(pool, tried); // all benched → forgive
+  const best = candidates
+    .map((k) => ({ k, slots: slotsOf(k) }))
+    .sort((a, b) => b.slots - a.slots);
+  return best[0].k;
+}
+
+/** Wait until a key's window frees a slot (bounded; never dead-ends). */
+async function waitForSlot(pool: string[], tried: Set<string>, maxWaitMs: number): Promise<boolean> {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    const waitable = pool.filter(
+      (k) => !tried.has(k) && (keyHealth.get(k)?.failedUntil ?? 0) < Date.now(),
+    );
+    if (waitable.some((k) => nvidiaSlotsLeft(k) > 0)) return true;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return false; // out of patience → attempt anyway, best effort
+}
+
 function nim(key: string) {
   return createOpenAICompatible({ name: "nvidia-nim", baseURL: NVIDIA_NIM_BASE_URL, headers: { Authorization: `Bearer ${key}` } });
 }
@@ -186,24 +267,40 @@ export async function generateText(
       throw err;
     });
 
-  // Two healthy keys race; a third stays in reserve for the bench logic.
+  // Two healthy keys race — but only when the pool isn't busy. Under load
+  // (many users sharing free keys) racing doubles consumption, so it degrades
+  // to a single attempt automatically.
   const keys = nvidiaPool();
   const racers: Promise<Awaited<ReturnType<typeof generateTextBase>>>[] = [];
   const usedNvidia = new Set<string>();
-  for (let i = 0; i < Math.min(keys.length, 2); i++) {
-    const key = pickKey(keys, usedNvidia);
+  const busy = nvidiaRpmNow() >= num(process.env.AI_RACE_RPM, 12);
+  const raceCount = busy ? 1 : Math.min(keys.length, 2);
+  for (let i = 0; i < raceCount; i++) {
+    const key = pickBudgetedKey(keys, usedNvidia, nvidiaSlotsLeft);
     if (!key) break;
     usedNvidia.add(key);
+    if (nvidiaSlotsLeft(key) <= 0) {
+      // Whole pool at its minute budget → queue for the next window (bounded)
+      // instead of burning attempts into 429s.
+      const ok = await waitForSlot(keys, usedNvidia, 20_000);
+      if (!ok) console.warn("[ai-gateway] all NVIDIA keys at rpm budget — attempting best-effort");
+    }
+    recordNvidia(key);
     racers.push(attemptNvidia(key));
   }
+  // OpenRouter speed-rescue joins only when the pool has headroom — free OR
+  // keys get 50 requests/day each, so under load it's reserved for NVIDIA
+  // being properly dead (handled by the reserve below).
   const orKeys = openrouterPool();
-  const orKey = pickKey(orKeys, new Set());
-  if (fallbackId && orKey) {
+  const orKey = orKeys.some((k) => orSlotsLeft(k) > 0) ? pickBudgetedKey(orKeys, new Set(), orSlotsLeft) : null;
+  const rescueAllowed = nvidiaRpmNow() < num(process.env.AI_OR_JOIN_RPM, 10);
+  if (fallbackId && orKey && rescueAllowed) {
     racers.push(
       (async () => {
         // Head start for NVIDIA — OpenRouter only joins if NVIDIA is slow.
         await new Promise((r) => setTimeout(r, OR_JOIN_DELAY_MS));
         try {
+          recordOr(orKey);
           return await generateTextBase({
             ...params,
             model: openrouter(orKey)(fallbackId),
