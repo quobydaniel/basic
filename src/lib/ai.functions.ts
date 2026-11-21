@@ -460,14 +460,16 @@ The user asked a question about using BASIC. Answer from the platform knowledge 
     } else {
       // Catalog search: take keywords from the last user message
       const last = data.messages[data.messages.length - 1].content.toLowerCase();
-      const stop = new Set(["find", "me", "a", "the", "for", "under", "about", "show", "want", "get", "with", "and", "in", "of", "to", "is", "there"]);
+      const stop = new Set(["find","me","a","the","for","under","about","show","want","get","with","and","in","of","to","is","there","which","what","where","best","deal","store","shop","price","cheap","cheaper","buy","sell","has","have","from","than","they","are","can","you","your","most","good","great","one","two","all","any","some","that","this","does","do","need","recommend","options","item","items","product","products"]);
       // Sanitize before .or() interpolation — raw user text can inject
       // PostgREST filter operators via commas/parens.
       const keywords = last
         .split(/\s+/)
         .map((w) => w.replace(/[^a-zA-Z0-9\-]/g, ""))
         .filter((w) => w.length > 2 && !stop.has(w))
-        .slice(0, 4);
+        .slice(0, 6);
+      // Budget intent: "under 100", "below GH¢50" → filter the results.
+      const priceCap = Number((((last.match(/(?:under|below|less than|max|cheaper than)\s*(?:ghs?|gh¢|₵)?\s*(\d{1,6})/i) ?? [])[1]) ?? 0));
       let q = context.supabase
         .from("products")
         .select("id, slug, title, base_price, currency, store:stores(slug, name, area, city), product_media(url)")
@@ -476,6 +478,7 @@ The user asked a question about using BASIC. Answer from the platform knowledge 
       if (keywords.length) {
         q = q.or(keywords.map((k) => `title.ilike.%${k}%`).join(","));
       }
+      if (priceCap > 0) q = q.lte("base_price", priceCap);
       const { data: found } = await q;
       // Ratings power "compare / best option" answers: one aggregate fetch
       // for the matched products, averaged in JS (reviews table only).
@@ -558,7 +561,7 @@ The user asked a question about using BASIC. Answer from the platform knowledge 
     {
       const cap = Number(process.env.BUYER_ASSISTANT_DAILY_CAP) > 0 ? Number(process.env.BUYER_ASSISTANT_DAILY_CAP) : 40;
       const day = new Date().toISOString().slice(0, 10);
-      const { data: usage } = await context.supabase
+      const { data: usage } = await (context.supabase as any)
         .from("ai_usage")
         .select("count")
         .eq("user_id", context.userId)
@@ -568,7 +571,7 @@ The user asked a question about using BASIC. Answer from the platform knowledge 
       if ((usage as any)?.count >= cap) {
         throw new Error("You've reached today's free AI-assistant limit — back tomorrow morning!");
       }
-      const { error: usageErr } = await context.supabase
+      const { error: usageErr } = await (context.supabase as any)
         .from("ai_usage")
         .upsert(
           { user_id: context.userId, day, fn: "buyerAssistant", count: ((usage as any)?.count ?? 0) + 1, updated_at: new Date().toISOString() },
