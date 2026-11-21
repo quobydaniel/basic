@@ -5,7 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft, ArrowDown, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone, ClipboardList, Loader2, MoreVertical, RotateCcw, Package, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
-import { autoPilotReply, autoPilotReplyRemote, summarizeConversation } from "@/lib/ai.functions";
+import { autoPilotReply, autoPilotReplyRemote, summarizeConversation, confirmProposal, createSellerOrder } from "@/lib/ai.functions";
 import { formatGHS } from "@/lib/format";
 import { toast } from "sonner";
 
@@ -251,6 +251,8 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   const lastMsg = msgs.data?.[msgs.data.length - 1];
   const autoRef = useRef<string | null>(null);
   const autoPilot = useServerFn(autoPilotReply);
+  const confirmProposalFn = useServerFn(confirmProposal);
+  const createSellerOrderFn = useServerFn(createSellerOrder);
   useEffect(() => {
     if (!user || !convo.data || !lastMsg) return;
     if (convo.data.seller_id !== user.id) return;
@@ -446,38 +448,41 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     if (!total || total <= 0) return toast.error("Enter the agreed total");
     setOrderBusy(true);
     try {
-      const { data: order, error: oErr } = await supabase
-        .from("orders" as any)
-        .insert({
-          store_id: convo.data.store_id,
-          buyer_id: convo.data.buyer_id,
-          status: "pending",
-          total,
-          currency: convo.data.product?.currency ?? "GHS",
-          source: "chat",
-          fulfillment_type: fulfillment,
-          payment_term: paymentTerm,
-        })
-        .select("id, order_number")
-        .single() as any;
-      if (oErr) throw oErr;
-      await supabase.from("messages" as any).insert({
-        conversation_id: conversationId,
-        sender_id: user.id,
-        kind: "system_order",
-        body: `Order ${order.order_number} created — GH₵${total.toFixed(2)} · ${fulfillment.replace(/_/g, " ")} · ${paymentTerm.replace(/_/g, " ")}`,
-        metadata: { order_id: order.id },
+      // Server-authoritative: price/floor/stock/idempotency enforced in
+      // place_order; one order per conversation from this path.
+      const res: any = await createSellerOrderFn({
+        data: { conversation_id: conversationId, total, fulfillment_type: fulfillment, payment_term: paymentTerm },
       });
-      if (!convo.data.order_id) {
-        await supabase.from("conversations" as any).update({ order_id: order.id }).eq("id", conversationId);
-      }
+      if (res?.duplicate) toast.info(`Order #${res.order_number} already exists for this chat`);
+      else toast.success(`Order ${res.order_number} created`);
       setShowOrderPanel(false);
-      toast.success(`Order ${order.order_number} created`);
       qc.invalidateQueries({ queryKey: ["msgs", conversationId] });
+      qc.invalidateQueries({ queryKey: ["dashboard-orders"] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not create order");
     } finally {
       setOrderBusy(false);
+    }
+  }
+
+  // Shared proposal resolver — the AI-proposal card buttons call this; every
+  // write is server-side (place_order, status matrix, resolution cards,
+  // idempotency on the proposal message id).
+  async function resolveProposal(m: any, decision: "confirmed" | "declined") {
+    if (!user || !convo.data || proposalBusy.current) return;
+    const md = (m as any).metadata ?? {};
+    if (md.resolved) return;
+    proposalBusy.current = true;
+    try {
+      const res: any = await confirmProposalFn({ data: { message_id: m.id, decision } });
+      if (res?.order_number && !res?.duplicate) toast.success(`Order #${res.order_number} confirmed`);
+      else if (decision === "declined") toast.success("Declined");
+      qc.invalidateQueries({ queryKey: ["msgs", conversationId] });
+      qc.invalidateQueries({ queryKey: ["dashboard-orders"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not process the proposal");
+    } finally {
+      proposalBusy.current = false;
     }
   }
 

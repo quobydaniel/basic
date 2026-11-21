@@ -6,7 +6,7 @@ import { Sparkles, Loader2, Copy, Instagram, Radio, MessageCircle, Facebook, Sav
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
-import { generateMarketingPost } from "@/lib/ai.functions";
+import { generateMarketingPost, generateStudioCopy } from "@/lib/ai.functions";
 
 export const Route = createFileRoute("/_authenticated/dashboard/ai")({
   component: AIStudio,
@@ -378,32 +378,17 @@ function Generator({ title, placeholder, system }: { title: string; placeholder:
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
   const [busy, setBusy] = useState(false);
+  const runCopy = useServerFn(generateStudioCopy);
 
   async function run() {
     if (!input.trim()) return;
     setBusy(true);
     setOutput("");
     try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token ?? "";
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: input },
-          ],
-        }),
-      });
-      if (res.status === 429) throw new Error("Rate limit reached. Try again in a moment.");
-      if (res.status === 402) throw new Error("AI credits exhausted. Add credits to continue.");
-      if (!res.ok) throw new Error("AI request failed");
-      const j = await res.json();
-      setOutput(j.choices?.[0]?.message?.content?.trim() ?? "");
+      // All model traffic goes through OUR gateway (server fn) — the browser
+      // never talks to external AI providers or ships tokens to them.
+      const res = await runCopy({ data: { system, prompt: input.slice(0, 4000) } });
+      setOutput(res.text);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "AI unavailable");
     } finally {

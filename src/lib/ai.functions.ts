@@ -14,7 +14,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import "../lib/ws-polyfill.server";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { createNvidiaNimProvider } from "@/lib/ai-gateway.server";
+import { createNvidiaNimProvider, generateViaOpenRouter } from "@/lib/ai-gateway.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { generateText } from "@/lib/ai-gateway.server";
@@ -1210,5 +1210,236 @@ export const placeAssistantOrder = createServerFn({ method: "POST" })
       quantity: data.quantity,
       title: prod.title,
       currency: prod.currency ?? "GHS",
+    };
+  });
+
+// ---------------- AI Studio copy (routed through OUR gateway) ----------------
+// Replaces the old browser-side fetch to a third-party AI gateway: studio
+// copy goes through the OpenRouter pool with rotation, clamps and rationing
+// like every other AI surface. Metered per seller per day.
+export const generateStudioCopy = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((raw: unknown) =>
+    z
+      .object({
+        system: z.string().min(1).max(2000),
+        prompt: z.string().min(1).max(4000),
+      })
+      .parse(raw),
+  )
+  .handler(async ({ data, context }) => {
+    const cap = Number(process.env.STUDIO_COPY_DAILY_CAP) > 0 ? Number(process.env.STUDIO_COPY_DAILY_CAP) : 60;
+    const day = new Date().toISOString().slice(0, 10);
+    const { data: usage } = await (context.supabase as any)
+      .from("ai_usage")
+      .select("count")
+      .eq("user_id", context.userId)
+      .eq("day", day)
+      .eq("fn", "studioCopy")
+      .maybeSingle();
+    if ((usage as any)?.count >= cap) {
+      throw new Error("You've reached today's free AI Studio limit — back tomorrow morning!");
+    }
+    const { error: usageErr } = await (context.supabase as any)
+      .from("ai_usage")
+      .upsert(
+        { user_id: context.userId, day, fn: "studioCopy", count: ((usage as any)?.count ?? 0) + 1, updated_at: new Date().toISOString() },
+        { onConflict: "user_id,day,fn" },
+      );
+    if (usageErr) console.warn("[ai] ai_usage cap disabled — run the ai_usage migration:", usageErr.message);
+
+    const text = (
+      await generateViaOpenRouter("google/gemini-2.5-flash", {
+        system: data.system,
+        prompt: data.prompt,
+        maxOutputTokens: 700,
+      })
+    ).text.trim();
+    return { text };
+  });
+
+// ---------------- Authoritative proposal confirmation ----------------
+// The seller's confirm/decline on an AI proposal card — ALL writes happen
+// here: order creation through place_order (server-priced, floor-checked,
+// stock-checked, idempotent on the proposal message id), cancellation
+// through the status matrix, resolution cards, resolved markers.
+export const confirmProposal = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((raw: unknown) =>
+    z
+      .object({
+        message_id: z.string().uuid(),
+        decision: z.enum(["confirmed", "declined"]),
+      })
+      .parse(raw),
+  )
+  .handler(async ({ data, context }) => {
+    const { data: msg } = await context.supabase
+      .from("messages")
+      .select("id, conversation_id, kind, metadata")
+      .eq("id", data.message_id)
+      .maybeSingle();
+    const m: any = msg;
+    if (!m || m.kind !== "system_order") throw new Error("Proposal not found");
+    const meta: any = m.metadata ?? {};
+    if (meta.resolved) return { duplicate: true, ...(meta.result ?? {}) };
+
+    const { data: convo } = await context.supabase
+      .from("conversations")
+      .select(
+        "id, buyer_id, seller_id, store_id, store:stores(id, slug, name, owner_id, currency, whatsapp_number), product:products(id, slug, title, base_price, currency, status, ai_min_price)",
+      )
+      .eq("id", m.conversation_id)
+      .maybeSingle();
+    const conv: any = convo;
+    if (!conv) throw new Error("Conversation not found");
+    const st: any = conv.store ?? {};
+    const isMember =
+      st.owner_id === context.userId ||
+      Boolean(
+        (
+          await (context.supabase as any).rpc("is_store_member", {
+            _store_id: conv.store_id,
+            _user_id: context.userId,
+          }).maybeSingle()
+        )?.data,
+      );
+    if (!isMember && conv.seller_id !== context.userId) {
+      throw new Error("Only the seller can resolve this proposal");
+    }
+
+    const kind: "order" | "cancel" = meta.proposal === "cancel" || meta.cancel_request ? "cancel" : "order";
+    const payload: any = meta.payload ?? {};
+    let result: any = { duplicate: false };
+
+    if (data.decision === "confirmed" && kind === "order") {
+      const qty = Math.max(1, Math.min(99, Number(payload.qty ?? 1) || 1));
+      const unit = payload.unit_price != null && Number(payload.unit_price) > 0 ? Number(payload.unit_price) : null;
+      const { data: placed, error: pErr } = await (context.supabase as any).rpc("place_order", {
+        p_store_id: conv.store_id,
+        p_product_id: conv.product_id,
+        p_quantity: qty,
+        p_unit_price: unit,
+        p_variant_title: payload.variant ?? null,
+        p_delivery: payload.delivery ?? null,
+        p_payment: payload.payment ?? null,
+        p_notes: ["Confirmed from AI proposal in chat", payload.variant ? `Variant: ${payload.variant}` : null, payload.delivery ? `Delivery area: ${payload.delivery}` : null]
+          .filter(Boolean)
+          .join(" · "),
+        p_source: "chat_ai",
+        p_idempotency_key: m.id,
+        p_buyer_id: conv.buyer_id,
+      });
+      if (pErr) throw new Error(pErr.message ?? "Could not create the order");
+      result = typeof placed === "string" ? { order_id: placed } : placed;
+      if (!result.duplicate) {
+        await context.supabase.from("messages").insert({
+          conversation_id: m.conversation_id,
+          sender_id: null,
+          kind: "system_order",
+          body: `Order #${result.order_number} confirmed — now in the buyer's Orders.`,
+          metadata: { order_id: result.order_id, ai: true },
+        });
+        try {
+          await context.supabase.from("notifications").insert({
+            user_id: conv.buyer_id,
+            kind: "order",
+            title: "Order confirmed",
+            body: `#${result.order_number} · ${qty}× ${payload.product_title ?? conv.product?.title ?? "item"} — see it in your Orders.`,
+            payload: { order_id: result.order_id, conversation_id: m.conversation_id },
+          });
+        } catch {}
+      }
+    } else if (data.decision === "confirmed" && kind === "cancel") {
+      const oid = meta.order_id;
+      const { error } = await (context.supabase as any)
+        .from("orders")
+        .update({ status: "cancelled" })
+        .eq("id", oid);
+      if (error) throw new Error(error.message ?? "Could not cancel the order");
+      await context.supabase.from("messages").insert({
+        conversation_id: m.conversation_id,
+        sender_id: null,
+        kind: "system_order",
+        body: "Cancellation confirmed — the order is cancelled.",
+        metadata: { order_id: oid, ai: true },
+      });
+    } else if (data.decision === "declined") {
+      await context.supabase.from("messages").insert({
+        conversation_id: m.conversation_id,
+        sender_id: null,
+        kind: "system_order",
+        body: kind === "cancel" ? "Seller declined the cancellation." : "Seller declined the AI's proposal.",
+        metadata: { ai: true },
+      });
+    }
+
+    await context.supabase.from("messages").update({ metadata: { ...meta, resolved: data.decision, result } }).eq("id", m.id);
+    return result;
+  });
+
+// ---------------- Seller order creation (recap flow) ----------------
+// The seller's "Create order" from the recap panel — seller-authoritative
+// pricing, but creation still goes through place_order so stock, floors and
+// idempotency apply. One order per conversation via this path.
+export const createSellerOrder = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((raw: unknown) =>
+    z
+      .object({
+        conversation_id: z.string().uuid(),
+        total: z.number().positive().max(10_000_000),
+        fulfillment_type: z.enum(["meet_in_person", "shop", "delivery"]).optional(),
+        payment_term: z.string().max(60).optional(),
+      })
+      .parse(raw),
+  )
+  .handler(async ({ data, context }) => {
+    const { data: convo } = await context.supabase
+      .from("conversations")
+      .select(
+        "id, buyer_id, seller_id, store_id, store:stores(id, slug, name, owner_id, currency), product:products(id, slug, title, base_price, currency, status, ai_min_price)",
+      )
+      .eq("id", data.conversation_id)
+      .maybeSingle();
+    const conv: any = convo;
+    if (!conv) throw new Error("Conversation not found");
+    const st: any = conv.store ?? {};
+    if (st.owner_id !== context.userId && conv.seller_id !== context.userId) {
+      throw new Error("Only the seller can create this order");
+    }
+    if (!conv.product) throw new Error("This conversation has no product to order");
+
+    const { data: placed, error: pErr } = await (context.supabase as any).rpc("place_order", {
+      p_store_id: conv.store_id,
+      p_product_id: conv.product.id,
+      p_quantity: 1,
+      p_unit_price: data.total,
+      p_variant_title: null,
+      p_delivery: null,
+      p_payment: data.payment_term ?? null,
+      p_notes: "Created by the seller from the chat recap",
+      p_source: "chat",
+      p_idempotency_key: `seller:${data.conversation_id}`,
+      p_buyer_id: conv.buyer_id,
+    });
+    if (pErr) throw new Error(pErr.message ?? "Could not create the order");
+    const result: any = typeof placed === "string" ? { order_id: placed } : placed;
+    // Card + conversation link — parity with the previous client-side flow.
+    await context.supabase.from("messages").insert({
+      conversation_id: data.conversation_id,
+      sender_id: context.userId,
+      kind: "system_order",
+      body: `Order ${result.order_number} created — GH₵${Number(result.total ?? 0).toFixed(2)}`,
+      metadata: { order_id: result.order_id },
+    });
+    try {
+      await context.supabase.from("conversations").update({ order_id: result.order_id }).eq("id", data.conversation_id);
+    } catch {}
+    return {
+      order_id: result.order_id,
+      order_number: result.order_number,
+      total: result.total,
+      duplicate: Boolean(result.duplicate),
     };
   });

@@ -351,3 +351,56 @@ export async function generateText(
     });
   }
 }
+
+/**
+ * OpenRouter-only text generation with pool rotation — for models NVIDIA
+ * doesn't host (e.g. gemini flash for studio copy). Rotates healthy OR
+ * keys, applies the free-tier credits clamp, benches failures. Bounded at
+ * 60s per attempt. Never call external providers from the browser.
+ */
+export async function generateViaOpenRouter(
+  modelId: string,
+  params: Omit<Parameters<typeof generateTextBase>[0], "model">,
+): ReturnType<typeof generateTextBase> {
+  const keys = openrouterPool();
+  const tried = new Set<string>();
+  let lastErr: unknown;
+  for (let i = 0; i < Math.min(keys.length, 3); i++) {
+    const key = pickKey(keys, tried);
+    if (!key) break;
+    tried.add(key);
+    try {
+      return await generateTextBase({
+        ...(params as Parameters<typeof generateTextBase>[0]),
+        model: openrouter(key)(modelId),
+        abortSignal: params.abortSignal ?? AbortSignal.timeout(60_000),
+      });
+    } catch (err) {
+      lastErr = err;
+      const msg = String((err as { message?: unknown })?.message ?? err);
+      const afford = msg.match(/can only afford (\d+)/i);
+      if (afford) {
+        try {
+          const budget = Math.max(
+            120,
+            Math.min(Number(afford[1]) - 16, Number(params.maxOutputTokens ?? afford[1])),
+          );
+          return await generateTextBase({
+            ...(params as Parameters<typeof generateTextBase>[0]),
+            model: openrouter(key)(modelId),
+            maxOutputTokens: budget,
+            abortSignal: params.abortSignal ?? AbortSignal.timeout(60_000),
+          });
+        } catch (err2) {
+          lastErr = err2;
+          if (!isProviderFailure(err2)) throw err2;
+          benchKey(key);
+          continue;
+        }
+      }
+      if (!isProviderFailure(err)) throw err;
+      benchKey(key);
+    }
+  }
+  throw lastErr ?? new Error("OpenRouter pool exhausted");
+}

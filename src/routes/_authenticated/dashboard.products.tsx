@@ -7,6 +7,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
 import { formatGHS } from "@/lib/format";
 import { specFieldsFor } from "@/lib/spec-templates";
+import { useServerFn } from "@tanstack/react-start";
+import { aiProductDescription } from "@/lib/ai.functions";
 
 export const Route = createFileRoute("/_authenticated/dashboard/products")({
   component: ProductsPage,
@@ -346,28 +348,25 @@ function ProductEditor({ storeId, productId, plan = "free", onClose, onSaved }: 
     }
   }
 
+  const descFn = useServerFn(aiProductDescription);
+
   async function aiWriteDescription() {
     if (!title) return toast.error("Enter a title first");
     setAiBusy(true);
     try {
-      const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token ?? ""}`,
+      // Through OUR gateway (server fn) — the browser never calls model providers.
+      const res = await descFn({
+        data: {
+          title: title.slice(0, 200),
+          price: price || undefined,
+          discount: compareAt || undefined,
+          negotiable,
+          swap: swapAvailable,
+          category: categoryId || undefined,
         },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [
-            { role: "system", content: "You write short, warm product descriptions for a Ghanaian marketplace. 2-3 sentences, no emojis." },
-            { role: "user", content: `Product title: ${title}. Write a description that highlights craftsmanship and value.` },
-          ],
-        }),
       });
-      if (!res.ok) throw new Error("AI request failed");
-      const j = await res.json();
-      const text = j.choices?.[0]?.message?.content;
-      if (text) setDescription(text.trim());
+      if (res?.description) setDescription(res.description);
+      else toast.error("AI unavailable. Fill in manually.");
     } catch (e) {
       toast.error("AI unavailable. Fill in manually.");
     } finally {
