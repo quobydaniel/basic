@@ -2,13 +2,15 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect, useMemo } from "react";
 import { ArrowRight, Search, TrendingUp, Sparkles, Store as StoreIcon, Star } from "lucide-react";
-import { AppShell } from "@/components/AppShell";
+import { AppShell, SiteFooter } from "@/components/AppShell";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import { Parallax, Reveal } from "@/components/motion";
+import { StoriesRail, ShortsRail } from "@/components/HomeRails";
 import { useStoryStoreIds } from "@/components/Stories";
 import { supabase } from "@/integrations/supabase/client";
 import { useBuyerLocation } from "@/lib/buyer-location";
 import { useInfiniteProducts } from "@/lib/use-infinite-products";
+import { recentlyViewed, type ViewedProduct } from "@/lib/recently-viewed";
 import { formatGHS } from "@/lib/format";
 
 export const Route = createFileRoute("/")({
@@ -261,6 +263,10 @@ function MarketplaceHome() {
         <CategoryIndex categories={categories.data} />
       </div>
 
+      {/* Stories — one gold ring per house with a live story; taps into the
+          existing full-screen viewer via the storefront deep link. */}
+      <StoriesRail />
+
       {/* Featured stores */}
       <Reveal>
         <SectionHeader eyebrow="The houses" title="Featured storefronts" to="/stores" icon={<TrendingUp className="h-4 w-4" />} />
@@ -328,8 +334,19 @@ function MarketplaceHome() {
         ))}
       </div>
 
+      {/* Special offers — real listings where compare_at_price exceeds the
+          price; quiet gold pricing, no fake countdowns. */}
+      <OffersSection />
+
+      {/* Shorts — vertical seller video discovery, deep-links to products */}
+      <ShortsRail />
+
       {/* Recommended for you — rule-based: buyer location first, then newest */}
       <RecommendedSection />
+
+      {/* Recently viewed — the buyer's own trail (localStorage), only when
+          there is one */}
+      <RecentlyViewedSection />
 
       {/* Just dropped grid — infinite feed, Jiji/Temu style */}
       <Reveal>
@@ -368,6 +385,12 @@ function MarketplaceHome() {
           </div>
         </section>
       </Reveal>
+
+      {/* Footer — desktop only; mobile surfaces stay content-first with the
+          footer living on the Account page. */}
+      <div className="hidden md:block">
+        <SiteFooter />
+      </div>
     </AppShell>
   );
 }
@@ -436,6 +459,103 @@ export function ProductCardTile({ p }: { p: ProductCard }) {
   );
 }
 
+
+/* Special offers — real compare_at_price listings. PostgREST can't compare
+   two columns server-side, so a recent window is fetched and filtered here. */
+function OffersSection() {
+  const offers = useQuery({
+    queryKey: ["home", "offers"],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("products")
+        .select("id, slug, title, base_price, compare_at_price, currency, store:stores(slug, name, area, city), product_media(url)")
+        .eq("status", "active")
+        .not("compare_at_price", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(48);
+      if (error) throw error;
+      return ((data ?? []) as unknown as (ProductCard & { compare_at_price: number | null })[])
+        .filter((p) => p.compare_at_price != null && p.compare_at_price > p.base_price)
+        .sort((a, b) => (b.compare_at_price! - b.base_price) / b.compare_at_price! - (a.compare_at_price! - a.base_price) / a.compare_at_price!)
+        .slice(0, 8);
+    },
+  });
+
+  if (!offers.data?.length) return null;
+  return (
+    <>
+      <Reveal className="mt-12 md:mt-16">
+        <div className="flex items-end justify-between px-4 md:px-8">
+          <div>
+            <p className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.34em] text-gild">
+              <Sparkles className="h-3.5 w-3.5" /> Priced to move
+            </p>
+            <h2 className="mt-1 font-display text-3xl md:text-4xl">Special offers</h2>
+          </div>
+        </div>
+      </Reveal>
+      <div className="no-scrollbar mt-4 flex gap-3 overflow-x-auto px-4 pb-2 md:grid md:grid-cols-4 md:overflow-visible md:px-8">
+        {offers.data.map((p) => {
+          const img = p.product_media?.[0]?.url;
+          const save = Math.round((1 - p.base_price / p.compare_at_price!) * 100);
+          return (
+            <Link
+              key={p.id}
+              to="/s/$storeSlug/p/$productSlug"
+              params={{ storeSlug: p.store?.slug ?? "", productSlug: p.slug }}
+              className="group block w-44 shrink-0 md:w-auto"
+            >
+              <div className="relative aspect-[4/5] overflow-hidden rounded-xl border border-border bg-muted transition-colors duration-300 group-hover:border-gold/50">
+                {img && (
+                  <img src={img} alt={p.title} loading="lazy" className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                )}
+                <span className="absolute left-1.5 top-1.5 rounded-full bg-gild px-2 py-px text-[9px] font-bold uppercase tracking-[0.12em] text-gild-foreground">
+                  −{save}%
+                </span>
+                <div className="absolute right-2 top-2">
+                  <FavoriteButton productId={p.id} size="sm" />
+                </div>
+              </div>
+              <div className="mt-2.5">
+                <p className="line-clamp-1 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{p.store?.name}</p>
+                <p className="line-clamp-1 font-display text-[16px]">{p.title}</p>
+                <p className="mt-0.5 flex items-baseline gap-2">
+                  <span className="text-[13px] font-bold text-gold">{formatGHS(p.base_price, { currency: p.currency })}</span>
+                  <span className="text-[11px] text-muted-foreground line-through">{formatGHS(p.compare_at_price!, { currency: p.currency })}</span>
+                </p>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+/* Recently viewed — the buyer's own trail from localStorage. */
+function RecentlyViewedSection() {
+  const [items] = useState<ViewedProduct[]>(() => recentlyViewed());
+  if (items.length === 0) return null;
+  return (
+    <>
+      <Reveal className="mt-12 md:mt-16">
+        <div className="flex items-end justify-between px-4 md:px-8">
+          <div>
+            <h2 className="font-display text-3xl md:text-4xl">Recently viewed</h2>
+          </div>
+        </div>
+      </Reveal>
+      <div className="no-scrollbar mt-4 flex gap-3 overflow-x-auto px-4 pb-2 md:grid md:grid-cols-4 md:overflow-visible md:px-8">
+        {items.map((p) => (
+          <div key={p.id} className="w-44 shrink-0 md:w-auto">
+            <ProductCardTile p={p} />
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
 
 function RecommendedSection() {
   const { location } = useBuyerLocation();

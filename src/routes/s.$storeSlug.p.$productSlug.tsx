@@ -1,8 +1,8 @@
 import { createFileRoute, Link, notFound, useNavigate, useRouter } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, Share2, ShieldCheck, MessageCircle, MapPin, Star, Sparkles, Loader2, Store, Lock } from "lucide-react";
+import { ArrowLeft, Share2, ShieldCheck, MessageCircle, MapPin, Star, Sparkles, Loader2, Store, Lock, ShoppingBag, Check } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import { ProductGallery } from "@/components/ProductGallery";
@@ -10,6 +10,8 @@ import { Stars } from "@/components/Stars";
 import { ProductCardTile } from "./index";
 import { supabase } from "@/integrations/supabase/client";
 import { formatGHS } from "@/lib/format";
+import { addToCart } from "@/lib/cart";
+import { recordRecentlyViewed } from "@/lib/recently-viewed";
 import { productBrief } from "@/lib/ai.functions";
 import { useServerFn } from "@tanstack/react-start";
 import { useSession } from "@/lib/session";
@@ -48,7 +50,7 @@ function ProductPage() {
 
       const { data: product, error: pe } = await supabase
         .from("products")
-        .select("id, slug, title, description, base_price, currency, category_id, product_media(url, alt, position), product_variants(id, title, price, inventory_qty)")
+        .select("id, slug, title, description, base_price, currency, category_id, delivery_available, payment_type, product_media(url, alt, position), product_variants(id, title, price, inventory_qty)")
         .eq("store_id", store.id)
         .eq("slug", productSlug)
         .eq("status", "active")
@@ -59,6 +61,22 @@ function ProductPage() {
       return { store, product };
     },
   });
+
+  // Recently viewed — the homepage rail reads this local trail.
+  const viewed = data.data?.product;
+  const viewedStore = data.data?.store;
+  useEffect(() => {
+    if (!viewed || !viewedStore) return;
+    recordRecentlyViewed({
+      id: viewed.id,
+      slug: viewed.slug,
+      title: viewed.title,
+      base_price: viewed.base_price,
+      currency: viewed.currency,
+      store: { slug: storeSlug, name: viewedStore.name, area: viewedStore.area ?? null, city: viewedStore.city ?? null },
+      product_media: viewed.product_media?.[0]?.url ? [{ url: viewed.product_media[0].url }] : [],
+    });
+  }, [viewed?.id]);
 
   const reviews = useQuery({
     queryKey: ["reviews", productSlug],
@@ -192,6 +210,32 @@ function ProductPage() {
   // Your own listing: no "Message seller" — that's how self-conversations
   // (buyer = seller) used to happen.
   const isOwnListing = !!user && sellerId === user.id;
+
+  // Cart path — the server re-checks price and stock at checkout, so the
+  // cart only captures the buyer's intent here. Negotiable listings stay
+  // chat-only: the price is agreed in conversation, not listed.
+  const [added, setAdded] = useState(false);
+  function handleAddToCart() {
+    if (negotiable || stockQty === 0 || isOwnListing) return;
+    addToCart({
+      product_id: product.id,
+      store_id: store.id,
+      store_slug: storeSlug,
+      store_name: store.name,
+      product_slug: product.slug,
+      title: product.title,
+      image: product.product_media?.[0]?.url ?? null,
+      unit_price: price,
+      currency: product.currency,
+      qty: 1,
+      variant_title: currentVariant?.title ?? null,
+      delivery_available: (product as any).delivery_available ?? null,
+      payment_type: (product as any).payment_type ?? null,
+    });
+    setAdded(true);
+    toast.success("Added to cart");
+    setTimeout(() => setAdded(false), 1600);
+  }
 
   async function messageSeller() {
     if (!user) {
@@ -429,6 +473,15 @@ function ProductPage() {
                 Demo store — seller chat coming soon
               </p>
             )}
+            {!negotiable && !isOwnListing && stockQty > 0 && (
+              <button
+                onClick={handleAddToCart}
+                className="flex w-full items-center justify-center gap-2 rounded-full border border-border bg-card py-3.5 text-sm font-semibold text-foreground transition-colors hover:border-gold hover:text-gold"
+              >
+                {added ? <Check className="h-4 w-4 text-success" /> : <ShoppingBag className="h-4 w-4" />}
+                {added ? "Added to cart" : "Add to cart"}
+              </button>
+            )}
             {waNumber && (
               <a
                 href={`https://wa.me/${waNumber}?text=${waText}`}
@@ -629,6 +682,16 @@ function ProductPage() {
               Your listing — manage
             </Link>
           ) : (
+            <>
+              {!negotiable && stockQty > 0 && (
+                <button
+                  onClick={handleAddToCart}
+                  aria-label="Add to cart"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-border text-foreground active:scale-95"
+                >
+                  {added ? <Check className="h-4 w-4 text-success" /> : <ShoppingBag className="h-4 w-4" />}
+                </button>
+              )}
             <button
               onClick={messageSeller}
               disabled={msgBusy || stockQty === 0}
@@ -637,6 +700,7 @@ function ProductPage() {
               {msgBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
               {stockQty === 0 ? "Sold out" : "Chat to buy"}
             </button>
+            </>
           )}
         </div>
       </div>
