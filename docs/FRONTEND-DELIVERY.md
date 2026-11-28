@@ -28,9 +28,9 @@ backend untouched.
   the elevated central orb (opens the one unified assistant via
   `basic:assistant:open`), safe-area aware, unread badges intact.
 - **Desktop:** AURUM header — brand row, nav capsule with Discover mega-menu
-  (real categories + trending products), search, favorites, **cart button with
-  live badge**, theme toggle, notifications, account menu, and a contextual AI
-  entry.
+  (real categories + trending products), search, favorites, theme toggle,
+  notifications, account menu, and a contextual AI entry (no cart anywhere —
+  spec Part 2).
 - Seller dashboard sidebar + mobile bar now expose every workspace incl.
   Autopilot, AI Studio, Affiliate, Deliveries (scrollable mobile bar).
 
@@ -51,7 +51,9 @@ backend untouched.
 - **Homepage:** stories rail, special offers (real `compare_at_price` data),
   shorts rail, recommended, recently viewed, just-arrived feed, seller CTA,
   desktop footer.
-- **Buyer hub** (`/account`): cart tile added; role-aware modes intact.
+- **Buyer hub** (`/account`): role-aware modes intact; quick tiles now reach
+  Favorites, Orders, Chats, **Alerts** (`/notifications`) and **Following**
+  (`/following`).
 
 ### Social commerce
 - Stories: gold-ring rails on home + storefront deep links into the existing
@@ -93,11 +95,11 @@ backend untouched.
 
 ---
 
-## 2. Route inventory (45 routes)
+## 2. Route inventory (48 routes)
 
 | Area | Routes |
 |---|---|
-| Buyer | `/` · `/discover` · `/stores` · `/store` · `/s/$storeSlug` (·index) · `/s/$storeSlug/p/$productSlug` · `/order/$storeSlug/$productSlug` *new, direct order* · `/favorites` · `/orders` · `/account` · `/pricing` |
+| Buyer | `/` · `/discover` · `/stores` · `/store` · `/s/$storeSlug` (·index) · `/s/$storeSlug/p/$productSlug` · `/order/$storeSlug/$productSlug` *new, direct order* · `/favorites` · `/orders` · `/orders/$orderId` *new, order details + status history* · `/notifications` *new, full alert history* · `/following` *new, followed stores* · `/account` · `/pricing` |
 | Chat | `/chat` (inbox) · `/chat/$conversationId` |
 | Seller | `/dashboard` (onboarding/home) · products · orders · chats(+thread) · **autopilot** *new* · ai (studio) · stories · shorts · storefront · **affiliate** · deliveries · settings · `/sell/chat` (+thread) |
 | Rider | `/rider` (onboarding/home) · active · earnings · profile |
@@ -148,7 +150,6 @@ it. All other migrations are already the source of truth.
 | Affiliate attribution | `affiliate_listings` renders as Partner picks; click tracking, conversion attribution, automated payouts — **no backend tables**; UI shows no earnings figures. |
 | Seller-to-AI WhatsApp | Design/config surface only (`/dashboard/autopilot`); provider integration **not verified**; card says so. |
 | Saved addresses | `localStorage` client-side until an addresses table exists. |
-| Cart persistence | Client-side by design; the transaction of record is `place_order`. |
 | Delivery pricing | No delivery-fee backend; checkout records delivery intent text, sellers settle terms (platform norm). |
 | Review counts | Card ratings are deterministic prototypes until real `reviews` volume accumulates (marked in code). |
 | Payments | No gateway integration invented; payment *terms* flow through place_order. Paystack keys configured in seller Settings for existing flows. |

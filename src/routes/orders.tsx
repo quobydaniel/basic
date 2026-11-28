@@ -45,7 +45,9 @@ function OrderTimeline({
   updatedAt: string;
 }) {
   if (status === "cancelled" || status === "refunded") {
-    return <p className="mt-3 text-xs font-medium capitalize text-red-500">This order was {status}.</p>;
+    return (
+      <p className="mt-3 text-xs font-medium capitalize text-red-500">This order was {status}.</p>
+    );
   }
   const idx = STEPS.findIndex((s) => s.key === status);
   const activeIdx = idx < 0 ? 0 : idx;
@@ -67,7 +69,9 @@ function OrderTimeline({
                 reached ? "border-[var(--gold)] bg-[var(--gold)]" : "border-border bg-background"
               }`}
             />
-            <span className={`mt-1.5 text-center text-[10px] leading-tight ${reached ? "text-foreground" : "text-muted-foreground/70"}`}>
+            <span
+              className={`mt-1.5 text-center text-[10px] leading-tight ${reached ? "text-foreground" : "text-muted-foreground/70"}`}
+            >
               {s.label}
             </span>
             {current && ts && (
@@ -95,9 +99,17 @@ function OrdersPage() {
   const escrowState = (o: any): { label: string; tone: "sage" | "gold" } | null => {
     const confirmed = !!o.buyer_confirmed_at;
     if (o.status === "delivered" && confirmed) return { label: "Escrow released ✓", tone: "sage" };
-    if (o.payment_term === "pay_before_delivery" && ["paid", "fulfilled", "shipped"].includes(o.status)) return { label: "Funds held in escrow — released on delivery", tone: "gold" };
-    if (o.payment_term === "escrow") return { label: "Escrow — funds held until delivery", tone: "gold" };
-    if (o.payment_term === "pay_on_delivery") return o.status === "delivered" ? { label: "Paid on delivery ✓", tone: "sage" } : { label: "Cash due on delivery", tone: "gold" };
+    if (
+      o.payment_term === "pay_before_delivery" &&
+      ["paid", "fulfilled", "shipped"].includes(o.status)
+    )
+      return { label: "Funds held in escrow — released on delivery", tone: "gold" };
+    if (o.payment_term === "escrow")
+      return { label: "Escrow — funds held until delivery", tone: "gold" };
+    if (o.payment_term === "pay_on_delivery")
+      return o.status === "delivered"
+        ? { label: "Paid on delivery ✓", tone: "sage" }
+        : { label: "Cash due on delivery", tone: "gold" };
     return null;
   };
 
@@ -110,7 +122,9 @@ function OrdersPage() {
       // already carry 8 baseline errors elsewhere) — runtime is fine.
       const { data, error } = await (supabase as any)
         .from("orders")
-        .select("id, order_number, status, total, currency, created_at, updated_at, buyer_confirmed_at, fulfillment_type, payment_term, store_id, store:stores(slug, name, logo_url), order_items(product_title, quantity)")
+        .select(
+          "id, order_number, status, total, currency, created_at, updated_at, buyer_confirmed_at, fulfillment_type, payment_term, store_id, store:stores(slug, name, logo_url), order_items(product_title, quantity)",
+        )
         .eq("buyer_id", user!.id)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -125,10 +139,14 @@ function OrdersPage() {
     if (!user) return;
     const ch = supabase
       .channel(`buyer-orders:${user.id}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `buyer_id=eq.${user.id}` }, () => {
-        qc.invalidateQueries({ queryKey: ["buyer-orders", user.id] });
-        qc.invalidateQueries({ queryKey: ["buyer-order-events"] });
-      })
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders", filter: `buyer_id=eq.${user.id}` },
+        () => {
+          qc.invalidateQueries({ queryKey: ["buyer-orders", user.id] });
+          qc.invalidateQueries({ queryKey: ["buyer-order-events"] });
+        },
+      )
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "order_events" }, () => {
         qc.invalidateQueries({ queryKey: ["buyer-order-events"] });
         qc.invalidateQueries({ queryKey: ["buyer-orders", user.id] });
@@ -146,7 +164,9 @@ function OrdersPage() {
     queryKey: ["buyer-order-imgs", (orders.data ?? []).map((o: any) => o.store_id).join(",")],
     enabled: (orders.data ?? []).length > 0,
     queryFn: async () => {
-      const storeIds = [...new Set((orders.data ?? []).map((o: any) => o.store_id).filter(Boolean))];
+      const storeIds = [
+        ...new Set((orders.data ?? []).map((o: any) => o.store_id).filter(Boolean)),
+      ];
       if (storeIds.length === 0) return {} as Record<string, string>;
       const { data, error } = await (supabase as any)
         .from("products")
@@ -164,7 +184,9 @@ function OrdersPage() {
     },
   });
   const itemImage = (o: any, title: string | null) =>
-    (title && imgByStoreTitle.data?.[`${o.store_id}:${title.toLowerCase()}`]) || o.store?.logo_url || null;
+    (title && imgByStoreTitle.data?.[`${o.store_id}:${title.toLowerCase()}`]) ||
+    o.store?.logo_url ||
+    null;
 
   // Status history per order. Graceful to a missing table (migration not yet
   // run): the timeline falls back to the order's current status alone.
@@ -226,7 +248,10 @@ function OrdersPage() {
   async function requestCancellation(o: any) {
     if (!user || cancelBusy) return;
     const convoId = convoByStore.data?.[o.store_id];
-    if (!convoId) return toast.error("Open a chat with this seller first, then request the cancellation there.");
+    if (!convoId)
+      return toast.error(
+        "Open a chat with this seller first, then request the cancellation there.",
+      );
     setCancelBusy(o.id);
     try {
       const { error } = await (supabase as any).from("messages").insert({
@@ -301,7 +326,11 @@ function OrdersPage() {
     },
     onError: (e) => {
       const m = errMsg(e);
-      toast.error(/row-level|policy|42501/i.test(m) ? "One-time setup needed — run apply-pending-2026-11-14j.sql in Supabase." : m || "Could not delete");
+      toast.error(
+        /row-level|policy|42501/i.test(m)
+          ? "One-time setup needed — run apply-pending-2026-11-14j.sql in Supabase."
+          : m || "Could not delete",
+      );
     },
   });
 
@@ -372,7 +401,9 @@ function OrdersPage() {
     <AppShell>
       <div className="px-4 pt-4 md:px-8 md:pt-8">
         <h1 className="font-display text-3xl">Orders</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Track everything you've bought on BASIC.</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Track everything you've bought on BASIC.
+        </p>
         {counts.all > 0 && (
           <div className="mt-3 flex gap-1.5">
             {bucketList.map(([b, label]) => (
@@ -394,16 +425,32 @@ function OrdersPage() {
 
       {loading ? null : !user ? (
         <div className="mx-4 mt-8 flex flex-col items-center rounded-3xl border border-dashed border-border p-10 text-center md:mx-8">
-          <div className="grid h-14 w-14 place-items-center rounded-full bg-muted"><Package className="h-6 w-6 text-muted-foreground" /></div>
+          <div className="grid h-14 w-14 place-items-center rounded-full bg-muted">
+            <Package className="h-6 w-6 text-muted-foreground" />
+          </div>
           <p className="mt-4 font-display text-xl">Sign in to see your orders</p>
-          <Link to="/auth" className="mt-5 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90">Sign in</Link>
+          <Link
+            to="/auth"
+            className="mt-5 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+          >
+            Sign in
+          </Link>
         </div>
       ) : (orders.data ?? []).length === 0 ? (
         <div className="mx-4 mt-8 flex flex-col items-center rounded-3xl border border-dashed border-border p-10 text-center md:mx-8">
-          <div className="grid h-14 w-14 place-items-center rounded-full bg-muted"><Package className="h-6 w-6 text-muted-foreground" /></div>
+          <div className="grid h-14 w-14 place-items-center rounded-full bg-muted">
+            <Package className="h-6 w-6 text-muted-foreground" />
+          </div>
           <p className="mt-4 font-display text-xl">No orders yet</p>
-          <p className="mt-1 max-w-xs text-sm text-muted-foreground">Your recent purchases will appear here.</p>
-          <Link to="/discover" className="mt-5 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90">Start shopping</Link>
+          <p className="mt-1 max-w-xs text-sm text-muted-foreground">
+            Your recent purchases will appear here.
+          </p>
+          <Link
+            to="/discover"
+            className="mt-5 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90"
+          >
+            Start shopping
+          </Link>
         </div>
       ) : (
         <ul className="mt-4 space-y-2 px-4 md:px-8">
@@ -415,185 +462,221 @@ function OrdersPage() {
           {visible.map((o: any) => {
             const firstItem = (o.order_items ?? [])[0];
             const img = itemImage(o, firstItem?.product_title ?? null);
-            const items = (o.order_items ?? []).map((it: any) => `${it.quantity}× ${it.product_title}`).join(", ");
+            const items = (o.order_items ?? [])
+              .map((it: any) => `${it.quantity}× ${it.product_title}`)
+              .join(", ");
             const open = expanded.has(o.id);
             const canCancel = isActiveStatus(o.status) && !["shipped"].includes(o.status);
             return (
-            <li key={o.id} className="rounded-2xl border border-border bg-card p-4">
-              <div className="flex gap-3">
-                {/* Product face — matched listing image, store logo fallback */}
-                {img && (
-                  <img
-                    src={img}
-                    alt=""
-                    loading="lazy"
-                    className="h-14 w-14 shrink-0 rounded-xl border border-border/60 object-cover"
-                  />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p className="font-medium">{o.order_number}</p>
-                    <p className="font-display text-lg">{formatGHS(o.total, { currency: o.currency })}</p>
+              <li key={o.id} className="rounded-2xl border border-border bg-card p-4">
+                <div className="flex gap-3">
+                  {/* Product face — matched listing image, store logo fallback */}
+                  {img && (
+                    <img
+                      src={img}
+                      alt=""
+                      loading="lazy"
+                      className="h-14 w-14 shrink-0 rounded-xl border border-border/60 object-cover"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="font-medium">{o.order_number}</p>
+                      <p className="font-display text-lg">
+                        {formatGHS(o.total, { currency: o.currency })}
+                      </p>
+                    </div>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {items || (o.store?.name ?? "")}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {new Date(o.created_at).toLocaleDateString()} · {o.store?.name}
+                      {convoByStore.data?.[o.store_id as string] && (
+                        <>
+                          {" · "}
+                          <Link
+                            to="/chat/$conversationId"
+                            params={{ conversationId: convoByStore.data![o.store_id as string] }}
+                            className="font-semibold text-gold hover:underline"
+                          >
+                            Open chat
+                          </Link>
+                        </>
+                      )}
+                      {" · "}
+                      <Link
+                        to="/orders/$orderId"
+                        params={{ orderId: o.id }}
+                        className="font-semibold text-gold hover:underline"
+                      >
+                        Full details
+                      </Link>
+                    </p>
                   </div>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {items || (o.store?.name ?? "")}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {new Date(o.created_at).toLocaleDateString()} · {o.store?.name}
-                    {convoByStore.data?.[o.store_id as string] && (
-                      <>
-                        {" · "}
-                        <Link
-                          to="/chat/$conversationId"
-                          params={{ conversationId: convoByStore.data![o.store_id as string] }}
-                          className="font-semibold text-gold hover:underline"
-                        >
-                          Open chat
-                        </Link>
-                      </>
+                </div>
+                {(o.fulfillment_type || o.payment_term) && (
+                  <p className="mt-2 flex flex-wrap gap-1">
+                    {o.fulfillment_type && (
+                      <span className="rounded-full border border-border px-2 py-0.5 text-[10px] capitalize">
+                        {o.fulfillment_type.replace(/_/g, " ")}
+                      </span>
+                    )}
+                    {o.payment_term && (
+                      <span className="rounded-full border border-[var(--gold)]/40 bg-[var(--gold)]/10 px-2 py-0.5 text-[10px] capitalize">
+                        {o.payment_term.replace(/_/g, " ")}
+                      </span>
+                    )}
+                    {escrowState(o) && (
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${escrowState(o)!.tone === "sage" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600" : "border-[var(--gold)]/50 bg-[var(--gold)]/10 text-foreground"}`}
+                      >
+                        {escrowState(o)!.label}
+                      </span>
                     )}
                   </p>
-                </div>
-              </div>
-              {(o.fulfillment_type || o.payment_term) && (
-                <p className="mt-2 flex flex-wrap gap-1">
-                  {o.fulfillment_type && (
-                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] capitalize">
-                      {o.fulfillment_type.replace(/_/g, " ")}
-                    </span>
-                  )}
-                  {o.payment_term && (
-                    <span className="rounded-full border border-[var(--gold)]/40 bg-[var(--gold)]/10 px-2 py-0.5 text-[10px] capitalize">
-                      {o.payment_term.replace(/_/g, " ")}
-                    </span>
-                  )}
-                  {escrowState(o) && (
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${escrowState(o)!.tone === "sage" ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600" : "border-[var(--gold)]/50 bg-[var(--gold)]/10 text-foreground"}`}>
-                      {escrowState(o)!.label}
-                    </span>
-                  )}
-                </p>
-              )}
+                )}
 
-              {/* Track — compact stage line by default; the full timeline
+                {/* Track — compact stage line by default; the full timeline
                   opens per-order so 14 pending cards stop towering. */}
-              <div className="mt-3 flex items-center justify-between gap-2 border-t border-border/40 pt-2.5">
-                <p className="flex items-center gap-2 text-xs">
-                  <span
-                    aria-hidden
-                    className={`h-2 w-2 rounded-full ${o.status === "delivered" ? "bg-emerald-500" : o.status === "cancelled" ? "bg-destructive" : "bg-[var(--gold)]"}`}
-                  />
-                  <span className="font-semibold capitalize text-foreground">
-                    {o.status.replace(/_/g, " ")}
-                  </span>
-                  <span className="text-muted-foreground">
-                    · {new Date(o.updated_at || o.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
-                  </span>
-                </p>
-                <button
-                  onClick={() => toggleTrack(o.id)}
-                  className="flex shrink-0 items-center gap-1 rounded-full border border-border px-3 py-1 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-gold/50 hover:text-gold"
-                  aria-expanded={open}
-                >
-                  {open ? "Hide" : "Track"} <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
-                </button>
-              </div>
+                <div className="mt-3 flex items-center justify-between gap-2 border-t border-border/40 pt-2.5">
+                  <p className="flex items-center gap-2 text-xs">
+                    <span
+                      aria-hidden
+                      className={`h-2 w-2 rounded-full ${o.status === "delivered" ? "bg-emerald-500" : o.status === "cancelled" ? "bg-destructive" : "bg-[var(--gold)]"}`}
+                    />
+                    <span className="font-semibold capitalize text-foreground">
+                      {o.status.replace(/_/g, " ")}
+                    </span>
+                    <span className="text-muted-foreground">
+                      ·{" "}
+                      {new Date(o.updated_at || o.created_at).toLocaleDateString(undefined, {
+                        day: "numeric",
+                        month: "short",
+                      })}
+                    </span>
+                  </p>
+                  <button
+                    onClick={() => toggleTrack(o.id)}
+                    className="flex shrink-0 items-center gap-1 rounded-full border border-border px-3 py-1 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-gold/50 hover:text-gold"
+                    aria-expanded={open}
+                  >
+                    {open ? "Hide" : "Track"}{" "}
+                    <ChevronDown
+                      className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                </div>
 
-              {open && (
-                <>
-                  <OrderTimeline
-                    status={o.status}
-                    events={eventsByOrder.data?.[o.id]}
-                    placedAt={o.created_at}
-                    updatedAt={o.updated_at}
-                  />
+                {open && (
+                  <>
+                    <OrderTimeline
+                      status={o.status}
+                      events={eventsByOrder.data?.[o.id]}
+                      placedAt={o.created_at}
+                      updatedAt={o.updated_at}
+                    />
 
-                  {/* Rider leg — shows once the seller ships and a delivery exists */}
-                  {(() => {
-                    const d = deliveryByOrder.data?.[o.id];
-                    if (!d || o.status === "cancelled" || o.status === "refunded") return null;
-                    return (
-                      <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                        <Truck className="h-3.5 w-3.5 shrink-0 text-[var(--gold)]" />
-                        <span className="font-medium text-foreground">{DELIVERY_LABEL[d.status] ?? "Delivery in progress"}</span>
-                        {d.dropoff_address && <span>· {d.dropoff_address}</span>}
-                        {d.rider?.vehicle_type && <span>· {String(d.rider.vehicle_type).replace(/_/g, " ")}</span>}
-                      </p>
-                    );
-                  })()}
-                </>
-              )}
+                    {/* Rider leg — shows once the seller ships and a delivery exists */}
+                    {(() => {
+                      const d = deliveryByOrder.data?.[o.id];
+                      if (!d || o.status === "cancelled" || o.status === "refunded") return null;
+                      return (
+                        <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                          <Truck className="h-3.5 w-3.5 shrink-0 text-[var(--gold)]" />
+                          <span className="font-medium text-foreground">
+                            {DELIVERY_LABEL[d.status] ?? "Delivery in progress"}
+                          </span>
+                          {d.dropoff_address && <span>· {d.dropoff_address}</span>}
+                          {d.rider?.vehicle_type && (
+                            <span>· {String(d.rider.vehicle_type).replace(/_/g, " ")}</span>
+                          )}
+                        </p>
+                      );
+                    })()}
+                  </>
+                )}
 
-              {/* Actions — pending orders the buyer cancels outright (the
+                {/* Actions — pending orders the buyer cancels outright (the
                   seller gets the card in chat); paid+ orders ask the seller
                   via the same thread; cancelled/pending can be deleted. */}
-              {(isActiveStatus(o.status) && o.status !== "shipped") || o.status === "cancelled" ? (
-                <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-                  {o.status === "pending" && (
-                    <button
-                      onClick={() => cancelOrder(o)}
-                      disabled={cancelBusy === o.id}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive disabled:opacity-60"
-                    >
-                      {cancelBusy === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                      {cancelBusy === o.id ? "Cancelling…" : "Cancel order"}
-                    </button>
-                  )}
-                  {(o.status === "paid" || o.status === "fulfilled") && (
-                    <button
-                      onClick={() => requestCancellation(o)}
-                      disabled={cancelBusy === o.id || cancelSent.has(o.id)}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-semibold transition-colors ${
-                        cancelSent.has(o.id)
-                          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
-                          : "border-border text-muted-foreground hover:border-destructive/50 hover:text-destructive"
-                      } disabled:opacity-60`}
-                    >
-                      {cancelBusy === o.id ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : cancelSent.has(o.id) ? (
-                        <CheckCircle2 className="h-3 w-3" />
-                      ) : null}
-                      {cancelSent.has(o.id) ? "Request sent" : cancelBusy === o.id ? "Sending…" : "Request cancellation"}
-                    </button>
-                  )}
-                  {(o.status === "pending" || o.status === "cancelled") && (
-                    <button
-                      onClick={() => {
-                        if (window.confirm(`Delete order ${o.order_number}? This can't be undone.`)) deleteOrder.mutate(o.id);
-                      }}
-                      disabled={deleteOrder.isPending && deleteOrder.variables === o.id}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive disabled:opacity-60"
-                    >
-                      {deleteOrder.isPending && deleteOrder.variables === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                      Delete
-                    </button>
-                  )}
-                </div>
-              ) : null}
-
-              {o.status === "delivered" && (
-                o.buyer_confirmed_at ? (
-                  <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-emerald-600">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Received — confirmed {new Date(o.buyer_confirmed_at).toLocaleDateString()}
-                  </p>
-                ) : (
-                  <button
-                    onClick={() => confirm.mutate(o.id)}
-                    disabled={confirm.isPending && confirm.variables === o.id}
-                    className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[var(--gold)] px-4 py-2 text-xs font-semibold text-[var(--gold-foreground)] hover:opacity-90 disabled:opacity-60"
-                  >
-                    {confirm.isPending && confirm.variables === o.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="h-3.5 w-3.5" />
+                {(isActiveStatus(o.status) && o.status !== "shipped") ||
+                o.status === "cancelled" ? (
+                  <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                    {o.status === "pending" && (
+                      <button
+                        onClick={() => cancelOrder(o)}
+                        disabled={cancelBusy === o.id}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive disabled:opacity-60"
+                      >
+                        {cancelBusy === o.id ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                        {cancelBusy === o.id ? "Cancelling…" : "Cancel order"}
+                      </button>
                     )}
-                    Confirm receipt
-                  </button>
-                )
-              )}
-            </li>
+                    {(o.status === "paid" || o.status === "fulfilled") && (
+                      <button
+                        onClick={() => requestCancellation(o)}
+                        disabled={cancelBusy === o.id || cancelSent.has(o.id)}
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[11px] font-semibold transition-colors ${
+                          cancelSent.has(o.id)
+                            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
+                            : "border-border text-muted-foreground hover:border-destructive/50 hover:text-destructive"
+                        } disabled:opacity-60`}
+                      >
+                        {cancelBusy === o.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : cancelSent.has(o.id) ? (
+                          <CheckCircle2 className="h-3 w-3" />
+                        ) : null}
+                        {cancelSent.has(o.id)
+                          ? "Request sent"
+                          : cancelBusy === o.id
+                            ? "Sending…"
+                            : "Request cancellation"}
+                      </button>
+                    )}
+                    {(o.status === "pending" || o.status === "cancelled") && (
+                      <button
+                        onClick={() => {
+                          if (
+                            window.confirm(`Delete order ${o.order_number}? This can't be undone.`)
+                          )
+                            deleteOrder.mutate(o.id);
+                        }}
+                        disabled={deleteOrder.isPending && deleteOrder.variables === o.id}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive disabled:opacity-60"
+                      >
+                        {deleteOrder.isPending && deleteOrder.variables === o.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3 w-3" />
+                        )}
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+
+                {o.status === "delivered" &&
+                  (o.buyer_confirmed_at ? (
+                    <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Received — confirmed {new Date(o.buyer_confirmed_at).toLocaleDateString()}
+                    </p>
+                  ) : (
+                    <button
+                      onClick={() => confirm.mutate(o.id)}
+                      disabled={confirm.isPending && confirm.variables === o.id}
+                      className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[var(--gold)] px-4 py-2 text-xs font-semibold text-[var(--gold-foreground)] hover:opacity-90 disabled:opacity-60"
+                    >
+                      {confirm.isPending && confirm.variables === o.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                      )}
+                      Confirm receipt
+                    </button>
+                  ))}
+              </li>
             );
           })}
         </ul>

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import {
   Bike,
+  Bell,
   Check,
   ChevronRight,
   Gem,
@@ -115,6 +116,8 @@ function AccountPage() {
     { to: "/favorites", icon: Heart, label: "Favorites", hint: "Saved products" },
     { to: "/orders", icon: Package, label: "Orders", hint: "Track deliveries" },
     { to: "/chat", icon: MessageCircle, label: "Chats", hint: "Conversations" },
+    { to: "/notifications", icon: Bell, label: "Alerts", hint: "Order updates" },
+    { to: "/following", icon: StoreIcon, label: "Following", hint: "Stores you follow" },
   ];
 
   // Switch-user modes — buyer is everyone's home turf; seller/affiliate hop
@@ -232,7 +235,7 @@ function AccountPage() {
             <p className="mb-3 mt-8 flex items-center gap-2.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
               <span className="h-px w-5 bg-gold/60" /> Quick access
             </p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-3 md:grid-cols-5">
               {quickTiles.map((t) => (
                 <Link
                   key={t.to}
