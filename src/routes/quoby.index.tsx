@@ -1,23 +1,28 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Users, Store as StoreIcon, Package, ShoppingCart, Banknote } from "lucide-react";
+import {
+  Users,
+  Store as StoreIcon,
+  Package,
+  ReceiptText,
+  Bike,
+  HandCoins,
+  ArrowUpRight,
+} from "lucide-react";
 
 import { adminGetStats } from "@/lib/admin.functions";
+import {
+  AdminPage,
+  AdminPanel,
+  AdminPanelHead,
+  StatTile,
+  StatusBadge,
+  AdminEmpty,
+} from "@/components/admin/AdminKit";
 
 export const Route = createFileRoute("/quoby/")({
   component: AdminOverview,
 });
-
-function StatCard({ icon: Icon, label, value }: { icon: typeof Users; label: string; value: string | number }) {
-  return (
-    <div className="rounded-2xl border border-border bg-card p-4">
-      <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-        <Icon className="h-3.5 w-3.5" /> {label}
-      </div>
-      <p className="mt-2 font-display text-2xl">{value}</p>
-    </div>
-  );
-}
 
 function AdminOverview() {
   const stats = useQuery({
@@ -25,64 +30,119 @@ function AdminOverview() {
     queryFn: () => adminGetStats(),
   });
 
-  if (stats.isLoading) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading overview…</div>;
-  }
-  if (stats.error) {
-    return <div className="p-6 text-sm text-destructive">Failed to load stats: {(stats.error as Error).message}</div>;
-  }
-  const d = stats.data!;
+  const d = stats.data;
+  const sections = [
+    { to: "/quoby/orders", label: "Order oversight", icon: ReceiptText },
+    { to: "/quoby/riders", label: "Rider directory", icon: Bike },
+    { to: "/quoby/affiliates", label: "Affiliate listings", icon: HandCoins },
+  ];
 
   return (
-    <div className="p-4 md:p-6">
-      <h1 className="font-display text-2xl">Overview</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Platform health at a glance.</p>
+    <AdminPage
+      title="Overview"
+      subtitle="Platform health at a glance. Every figure below comes from live platform tables — nothing estimated."
+    >
+      {stats.isLoading && (
+        <div className="pearl-card p-8 text-center text-sm text-muted-foreground">
+          Loading overview…
+        </div>
+      )}
+      {stats.error && (
+        <div className="pearl-card p-5 text-sm text-error">
+          Failed to load stats: {(stats.error as Error).message}
+        </div>
+      )}
 
-      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
-        <StatCard icon={Users} label="Users" value={d.totalUsers} />
-        <StatCard icon={StoreIcon} label="Stores" value={d.totalStores} />
-        <StatCard icon={Package} label="Products" value={d.totalProducts} />
-        <StatCard icon={ShoppingCart} label="Orders" value={d.totalOrders} />
-        <StatCard icon={Banknote} label="GMV (paid)" value={`GH₵${d.gmv.toFixed(2)}`} />
-      </div>
+      {d && (
+        <>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+            <StatTile icon={Users} label="Users" value={d.totalUsers} />
+            <StatTile icon={StoreIcon} label="Stores" value={d.totalStores} />
+            <StatTile icon={Package} label="Products" value={d.totalProducts} />
+            <StatTile icon={ReceiptText} label="Orders" value={d.totalOrders} />
+            <StatTile icon={StoreIcon} label="GMV (paid)" value={`GH₵${d.gmv.toFixed(2)}`} />
+          </div>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
-        <section className="rounded-2xl border border-border bg-card p-4">
-          <h2 className="font-display text-lg">Recent signups</h2>
-          <ul className="mt-3 space-y-2">
-            {d.recentUsers.length === 0 && <li className="text-sm text-muted-foreground">No users yet.</li>}
-            {d.recentUsers.map((u) => (
-              <li key={u.user_id} className="flex items-center justify-between rounded-xl border border-border/60 px-3 py-2 text-sm">
-                <span className="truncate">
-                  <span className="font-medium">{u.full_name || u.email}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">{u.email}</span>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {sections.map(({ to, label, icon: Icon }) => (
+              <Link
+                key={to}
+                to={to}
+                className="pearl-card group flex items-center justify-between px-4 py-3.5 text-sm font-medium transition-colors hover:text-gold"
+              >
+                <span className="flex items-center gap-2.5">
+                  <Icon className="h-4 w-4 text-gold" /> {label}
                 </span>
-                <span className="text-xs text-muted-foreground">{new Date(u.created_at).toLocaleDateString()}</span>
-              </li>
+                <ArrowUpRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+              </Link>
             ))}
-          </ul>
-        </section>
+          </div>
 
-        <section className="rounded-2xl border border-border bg-card p-4">
-          <h2 className="font-display text-lg">Recent orders</h2>
-          <ul className="mt-3 space-y-2">
-            {d.recentOrders.length === 0 && (
-              <li className="text-sm text-muted-foreground">No orders yet.</li>
-            )}
-            {(d.recentOrders as { id: string; status: string; total: number | null; currency: string; created_at: string; store: { name: string } | null }[]).map((o) => (
-              <li key={o.id} className="flex items-center justify-between rounded-xl border border-border/60 px-3 py-2 text-sm">
-                <span className="truncate">
-                  <span className="font-medium">{o.store?.name ?? "Store"}</span>
-                  <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-[10px] uppercase">{o.status}</span>
-                </span>
-                <span className="text-xs font-medium">
-                  {o.currency} {Number(o.total ?? 0).toFixed(2)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      </div>
-    </div>
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <AdminPanel>
+              <AdminPanelHead title="Recent signups" hint={`${d.recentUsers.length} latest`} />
+              {d.recentUsers.length === 0 ? (
+                <AdminEmpty text="No users yet." />
+              ) : (
+                <ul className="divide-y divide-border/60">
+                  {d.recentUsers.map((u) => (
+                    <li
+                      key={u.user_id}
+                      className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm md:px-5"
+                    >
+                      <span className="min-w-0">
+                        <span className="font-medium">{u.full_name || u.email}</span>
+                        <span className="ml-2 truncate text-xs text-muted-foreground">
+                          {u.email}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {new Date(u.created_at).toLocaleDateString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </AdminPanel>
+
+            <AdminPanel>
+              <AdminPanelHead title="Recent orders" hint="latest 8" />
+              {d.recentOrders.length === 0 ? (
+                <AdminEmpty
+                  text="No orders yet."
+                  hint="New orders appear here as buyers place them."
+                />
+              ) : (
+                <ul className="divide-y divide-border/60">
+                  {(
+                    d.recentOrders as {
+                      id: string;
+                      status: string;
+                      total: number | null;
+                      currency: string;
+                      created_at: string;
+                      store: { name: string } | null;
+                    }[]
+                  ).map((o) => (
+                    <li
+                      key={o.id}
+                      className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm md:px-5"
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate font-medium">{o.store?.name ?? "Store"}</span>
+                        <StatusBadge status={o.status} />
+                      </span>
+                      <span className="shrink-0 text-xs font-medium">
+                        {o.currency} {Number(o.total ?? 0).toFixed(2)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </AdminPanel>
+          </div>
+        </>
+      )}
+    </AdminPage>
   );
 }
