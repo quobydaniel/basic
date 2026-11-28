@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Package, ShoppingCart, Trash2, Sparkles, Check, User } from "lucide-react";
+import { Package, Trash2, Sparkles, Check, User } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -345,7 +345,7 @@ function OrdersPage() {
         {orders.isLoading && <div className="p-6 text-sm text-muted-foreground md:col-span-2">Loading…</div>}
         {(orders.data ?? []).length === 0 && !orders.isLoading && (
           <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-border p-10 text-center md:col-span-2">
-            <ShoppingCart className="h-8 w-8 text-muted-foreground" />
+            <Package className="h-8 w-8 text-muted-foreground" />
             <p className="font-display text-lg">No orders yet</p>
             <p className="max-w-sm text-sm text-muted-foreground">
               Once a customer checks out, their order lands here.

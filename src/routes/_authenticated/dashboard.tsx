@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import {
   LayoutDashboard,
   Package,
-  ShoppingCart,
   Palette,
   Settings,
   Home,
@@ -27,7 +26,7 @@ type NavItem = { to: string; label: string; icon: typeof LayoutDashboard; exact?
 const items: NavItem[] = [
   { to: "/dashboard", label: "Home", icon: LayoutDashboard, exact: true },
   { to: "/dashboard/products", label: "Products", icon: Package },
-  { to: "/dashboard/orders", label: "Orders", icon: ShoppingCart },
+  { to: "/dashboard/orders", label: "Orders", icon: Package },
   { to: "/dashboard/chats", label: "Chats", icon: MessageCircle },
   { to: "/dashboard/autopilot", label: "Autopilot", icon: Bot },
   { to: "/dashboard/ai", label: "AI Studio", icon: Sparkles },

@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import {
   Store as StoreIcon,
   Package,
-  ShoppingCart,
   TrendingUp,
   ArrowRight,
   MessageCircle,
@@ -314,7 +313,7 @@ function StoreOverview({ store }: { store: any }) {
           label="Orders"
           value={String(orderCount)}
           hint={orderCount ? `${conversion}% paid` : "No orders yet"}
-          icon={<ShoppingCart className="h-4 w-4" />}
+          icon={<Package className="h-4 w-4" />}
           accent="var(--gold)"
           to="/dashboard/orders"
         />

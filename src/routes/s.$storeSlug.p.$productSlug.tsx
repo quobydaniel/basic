@@ -13,8 +13,6 @@ import {
   Loader2,
   Store,
   Lock,
-  ShoppingBag,
-  Check,
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { FavoriteButton } from "@/components/FavoriteButton";
@@ -23,7 +21,6 @@ import { Stars } from "@/components/Stars";
 import { ProductCardTile } from "./index";
 import { supabase } from "@/integrations/supabase/client";
 import { formatGHS } from "@/lib/format";
-import { addToCart } from "@/lib/cart";
 import { recordRecentlyViewed } from "@/lib/recently-viewed";
 import { productBrief } from "@/lib/ai.functions";
 import { useServerFn } from "@tanstack/react-start";
@@ -251,30 +248,21 @@ function ProductPage() {
   // (buyer = seller) used to happen.
   const isOwnListing = !!user && sellerId === user.id;
 
-  // Cart path — the server re-checks price and stock at checkout, so the
-  // cart only captures the buyer's intent here. Negotiable listings stay
+  // Direct order (no cart, per product decision): quantity here, BUY NOW
+  // continues into the single-product order flow. Negotiable listings stay
   // chat-only: the price is agreed in conversation, not listed.
-  const [added, setAdded] = useState(false);
-  function handleAddToCart() {
+  const [qty, setQty] = useState(1);
+  const maxQty = Math.max(1, Math.min(stockQty || 99, 99));
+  function buyNow() {
     if (negotiable || stockQty === 0 || isOwnListing) return;
-    addToCart({
-      product_id: product.id,
-      store_id: store.id,
-      store_slug: storeSlug,
-      store_name: store.name,
-      product_slug: product.slug,
-      title: product.title,
-      image: product.product_media?.[0]?.url ?? null,
-      unit_price: price,
-      currency: product.currency,
-      qty: 1,
-      variant_title: currentVariant?.title ?? null,
-      delivery_available: (product as any).delivery_available ?? null,
-      payment_type: (product as any).payment_type ?? null,
+    navigate({
+      to: "/order/$storeSlug/$productSlug",
+      params: { storeSlug, productSlug },
+      search: {
+        v: currentVariant?.title ?? undefined,
+        qty: qty > 1 ? qty : undefined,
+      },
     });
-    setAdded(true);
-    toast.success("Added to cart");
-    setTimeout(() => setAdded(false), 1600);
   }
 
   async function messageSeller() {
@@ -531,13 +519,51 @@ function ProductPage() {
             </div>
           )}
 
+          {/* Direct purchase actions — no cart: quantity + BUY NOW, chat,
+              WhatsApp, share (per the product's no-basket decision) */}
+          {!negotiable && !isOwnListing && stockQty > 0 && (
+            <div className="mt-6 flex items-center justify-between rounded-2xl border border-border bg-card px-4 py-3">
+              <div>
+                <p className="text-[12px] text-muted-foreground">Quantity</p>
+                <div className="mt-1 flex items-center rounded-full border border-border">
+                  <button
+                    onClick={() => setQty((q) => Math.max(1, q - 1))}
+                    aria-label="Reduce quantity"
+                    className="grid h-8 w-8 place-items-center rounded-l-full text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    −
+                  </button>
+                  <span className="w-9 text-center text-sm font-semibold">{qty}</span>
+                  <button
+                    onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
+                    aria-label="Increase quantity"
+                    className="grid h-8 w-8 place-items-center rounded-r-full text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+              <button
+                onClick={buyNow}
+                className="flex h-10 items-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground hover:opacity-90"
+              >
+                Buy now · {formatGHS(price * qty, { currency: product.currency })}
+              </button>
+            </div>
+          )}
+          {negotiable && !isOwnListing && stockQty > 0 && (
+            <p className="mt-6 rounded-2xl border border-gold/40 bg-gold/5 px-4 py-3 text-center text-[13px] font-medium text-gold">
+              Negotiable — chat with the seller to agree a price
+            </p>
+          )}
+
           {/* Chat-first purchase actions */}
-          <div className="mt-6 space-y-2">
+          <div className="mt-2 space-y-2">
             {canChat ? (
               <button
                 onClick={messageSeller}
                 disabled={msgBusy}
-                className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+                className="flex w-full items-center justify-center gap-2 rounded-full border border-border bg-card py-3.5 text-sm font-semibold text-foreground hover:border-gold hover:text-gold"
               >
                 <MessageCircle className="h-4 w-4" />
                 Message seller · {formatGHS(price, { currency: product.currency })}
@@ -546,19 +572,6 @@ function ProductPage() {
               <p className="rounded-full border border-border bg-card px-4 py-3 text-center text-xs text-muted-foreground">
                 Demo store — seller chat coming soon
               </p>
-            )}
-            {!negotiable && !isOwnListing && stockQty > 0 && (
-              <button
-                onClick={handleAddToCart}
-                className="flex w-full items-center justify-center gap-2 rounded-full border border-border bg-card py-3.5 text-sm font-semibold text-foreground transition-colors hover:border-gold hover:text-gold"
-              >
-                {added ? (
-                  <Check className="h-4 w-4 text-success" />
-                ) : (
-                  <ShoppingBag className="h-4 w-4" />
-                )}
-                {added ? "Added to cart" : "Add to cart"}
-              </button>
             )}
             {waNumber && (
               <a
@@ -782,28 +795,28 @@ function ProductPage() {
             <>
               {!negotiable && stockQty > 0 && (
                 <button
-                  onClick={handleAddToCart}
-                  aria-label="Add to cart"
-                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-border text-foreground active:scale-95"
+                  onClick={buyNow}
+                  className="flex h-11 flex-1 items-center justify-center gap-2 rounded-full bg-primary text-sm font-semibold text-primary-foreground shadow-[0_8px_24px_-8px_color-mix(in_oklab,var(--primary)_60%,transparent)] disabled:opacity-50"
                 >
-                  {added ? (
-                    <Check className="h-4 w-4 text-success" />
-                  ) : (
-                    <ShoppingBag className="h-4 w-4" />
-                  )}
+                  {stockQty === 0 ? "Sold out" : `Buy now${qty > 1 ? ` ×${qty}` : ""}`}
                 </button>
               )}
               <button
                 onClick={messageSeller}
                 disabled={msgBusy || stockQty === 0}
-                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-full bg-primary text-sm font-semibold text-primary-foreground shadow-[0_8px_24px_-8px_color-mix(in_oklab,var(--primary)_60%,transparent)] disabled:opacity-50"
+                className={
+                  !negotiable && stockQty > 0
+                    ? "grid h-11 w-11 shrink-0 place-items-center rounded-full border border-border text-foreground"
+                    : "flex h-11 flex-1 items-center justify-center gap-2 rounded-full bg-primary text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                }
+                aria-label={!negotiable && stockQty > 0 ? "Message the seller" : undefined}
               >
                 {msgBusy ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <MessageCircle className="h-4 w-4" />
                 )}
-                {stockQty === 0 ? "Sold out" : "Chat to buy"}
+                {!(!negotiable && stockQty > 0) && (stockQty === 0 ? "Sold out" : "Chat to buy")}
               </button>
             </>
           )}

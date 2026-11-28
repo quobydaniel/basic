@@ -55,7 +55,7 @@ const SPECS: Record<string, Spec> = {
   ama: {
     kind: "human", skin: ["#a86e4a", "#7f5436"], outfit: ["#262b33", "#14171d"], glasses: true,
     actions: ["nod", "spin", "flip", "wave", "stretch", "moonwalk"],
-    hoverLines: ["I see you. The cart is empty. 😐", "Yes? The deals won't click themselves."],
+    hoverLines: ["I see you. The orders are quiet. 😐", "Yes? The deals won't click themselves."],
     actionLines: ["Approved. For now.", "A nod from the board. 😐", "You saw nothing. 😐"],
   },
   nkoso: {
@@ -73,7 +73,7 @@ const SPECS: Record<string, Spec> = {
   owusu: {
     kind: "owl", skin: ["#96633a", "#6f4627"], outfit: ["#7c5230", "#5c3c22"],
     actions: ["turn", "flap", "dance", "spin", "cartwheel", "cheer", "moonwalk"],
-    hoverLines: ["Hoot! You moved.", "My eyes are bigger than your cart. 👀"],
+    hoverLines: ["Hoot! You moved.", "My eyes are bigger than my orders. 👀"],
     actionLines: ["Hoot. I see everything.", "Wisdom loading…", "Hoot hoot hoot! 🦉"],
   },
 };

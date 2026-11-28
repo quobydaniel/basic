@@ -71,9 +71,10 @@ export type Order = {
   buyer_id: string;
 };
 
-/** Cart line — a frontend intent; the server re-prices and stock-checks it
-    at place_order time. See src/lib/cart.ts. */
-export type CartItem = {
+/** Direct-order intent — built on the product page (BUY NOW) and submitted
+    through services/orders.placeOrder. No cart exists by product decision:
+    one intent = one order = one place_order call. */
+export type OrderIntent = {
   key: string;
   product_id: string;
   store_id: string;
@@ -81,10 +82,9 @@ export type CartItem = {
   store_name: string;
   product_slug: string;
   title: string;
-  image: string | null;
   unit_price: number;
   currency: string;
-  qty: number;
+  quantity: number;
   variant_title: string | null;
   delivery_available: boolean | null;
   payment_type: PaymentTerm | null;

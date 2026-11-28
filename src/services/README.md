@@ -15,9 +15,12 @@ src/services/
 ## The rules
 
 1. **Backend operations have exactly one service entry point.** `placeOrder()`
-   is the only frontend path that creates an order — checkout, the AI
-   concierge's proposal confirmation and the seller's recap creation all land
-   in the same server-priced, stock-locked, idempotent RPC.
+   is the only frontend path that creates an order — the product page's
+   BUY NOW direct-order flow, the AI concierge's proposal confirmation and the
+   seller's recap creation all land in the same server-priced, stock-locked,
+   idempotent RPC. **BASIC has no shopping cart** (explicit product decision,
+   `docs/FRONTEND-MASTER-SPEC.md` Part 2): ordering starts from a single
+   product and goes straight to `place_order`.
 2. **Never silently substitute mock data for a failed backend call.** Services
    throw typed errors (`OrderPlacementError` + code); surfaces render loading,
    empty, error and success states explicitly.
@@ -42,5 +45,5 @@ src/services/
   invents earnings.
 - Saved buyer addresses live in `localStorage` (`basic:checkout:address`)
   until an addresses table exists.
-- Cart is a client-side store (`src/lib/cart.ts`) by design: intent lives on
-  the device; the transaction of record is `place_order`.
+- There is no cart to persist — the direct-order flow carries its one item
+  from the product page to `place_order` in a single pass.

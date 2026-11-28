@@ -112,7 +112,6 @@ function AccountPage() {
     .toUpperCase();
 
   const quickTiles = [
-    { to: "/cart", icon: ShoppingBag, label: "Cart", hint: "Ready to check out" },
     { to: "/favorites", icon: Heart, label: "Favorites", hint: "Saved products" },
     { to: "/orders", icon: Package, label: "Orders", hint: "Track deliveries" },
     { to: "/chat", icon: MessageCircle, label: "Chats", hint: "Conversations" },

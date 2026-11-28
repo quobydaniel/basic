@@ -35,7 +35,6 @@ import { useCategoryStats } from "@/lib/category-stats";
 import { formatGHS } from "@/lib/format";
 import { NotificationBell } from "@/components/NotificationBell";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { useCart } from "@/lib/cart";
 
 type Cat = { id: string; slug: string; name: string; parent_id: string | null };
 
@@ -169,7 +168,6 @@ export function PearlHeader() {
           >
             <Heart className="h-[18px] w-[18px]" strokeWidth={1.7} />
           </Link>
-          <CartButton />
           <div className="aurum-icon-btn grid h-11 w-11 place-items-center">
             <ThemeToggle />
           </div>
@@ -180,28 +178,6 @@ export function PearlHeader() {
         </div>
       </div>
     </header>
-  );
-}
-
-/* Cart button — badge reflects the client-side cart (localStorage store). */
-function CartButton() {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const items = useCart();
-  const count = items.reduce((s, i) => s + i.qty, 0);
-  return (
-    <Link
-      to="/cart"
-      aria-label={`Cart — ${count} item${count === 1 ? "" : "s"}`}
-      data-active={pathname.startsWith("/cart")}
-      className="aurum-icon-btn relative grid h-11 w-11 place-items-center text-foreground/90 hover:text-gold data-[active=true]:text-gold"
-    >
-      <ShoppingBag className="h-[18px] w-[18px]" strokeWidth={1.7} />
-      {count > 0 && (
-        <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-gold px-1 text-[9px] font-bold text-gold-foreground ring-2 ring-background">
-          {count > 9 ? "9+" : count}
-        </span>
-      )}
-    </Link>
   );
 }
 

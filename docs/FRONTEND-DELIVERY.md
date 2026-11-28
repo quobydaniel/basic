@@ -34,16 +34,20 @@ backend untouched.
 - Seller dashboard sidebar + mobile bar now expose every workspace incl.
   Autopilot, AI Studio, Affiliate, Deliveries (scrollable mobile bar).
 
-### Buyer experience
-- **Cart** (`/cart` + `src/lib/cart.ts`): client-side store (localStorage,
-  cross-tab sync), grouped by store, qty steppers, honest "orders are created
-  per item" note. Negotiable listings stay chat-only by design.
-- **Checkout** (`/checkout`): 4 steps — Address → Delivery → Payment → Review —
-  then places each line through the **authoritative `place_order` RPC**
-  (server-priced, floor-checked, stock-locked, idempotent). Per-line results:
-  failures (e.g. sold out) never touch the other lines.
-- **Product page:** Add to cart beside the chat-first purchase path (variant +
-  stock + negotiable aware), recently-viewed recording.
+### Buyer experience (no cart — explicit product decision)
+- **NO CART anywhere** — `docs/FRONTEND-MASTER-SPEC.md` Part 2 (committed by
+  Quoby mid-session) makes the no-basket rule non-negotiable; an earlier
+  cart/checkout experiment was removed in the same session.
+- **Direct order** (`/order/$storeSlug/$productSlug`, spec PAGE 7): from the
+  product page's BUY NOW — confirm item/variation/quantity → buyer info +
+  delivery → review → **`place_order` RPC** (server-priced, floor-checked,
+  stock-locked, idempotent) → confirmation or pending status. Seller
+  confirmation is stated plainly on the confirmation screen.
+- **Product page:** quantity selector + BUY NOW, "Message seller", WhatsApp,
+  share; negotiable listings are chat-only ("Negotiable — chat to agree a
+  price"); recently-viewed recording.
+- **No cart icons/destinations/copy** anywhere (verified by sweep — even the
+  store character's hover lines and the dashboard's orders icon).
 - **Homepage:** stories rail, special offers (real `compare_at_price` data),
   shorts rail, recommended, recently viewed, just-arrived feed, seller CTA,
   desktop footer.
@@ -93,11 +97,11 @@ backend untouched.
 
 | Area | Routes |
 |---|---|
-| Buyer | `/` · `/discover` · `/stores` · `/store` · `/s/$storeSlug` (·index) · `/s/$storeSlug/p/$productSlug` · `/cart` *new* · `/checkout` *new* · `/favorites` · `/orders` · `/account` · `/pricing` |
+| Buyer | `/` · `/discover` · `/stores` · `/store` · `/s/$storeSlug` (·index) · `/s/$storeSlug/p/$productSlug` · `/order/$storeSlug/$productSlug` *new, direct order* · `/favorites` · `/orders` · `/account` · `/pricing` |
 | Chat | `/chat` (inbox) · `/chat/$conversationId` |
 | Seller | `/dashboard` (onboarding/home) · products · orders · chats(+thread) · **autopilot** *new* · ai (studio) · stories · shorts · storefront · **affiliate** · deliveries · settings · `/sell/chat` (+thread) |
 | Rider | `/rider` (onboarding/home) · active · earnings · profile |
-| Admin | `/quoby` (overview) · users · stores · products · ai |
+| Admin | `/quoby` (overview) · users · stores · products · ai · orders · riders · affiliates · transactions *(orders/riders/affiliates/transactions + AdminKit components landed by Quoby mid-session; this session fixed their build blocker — see below)* |
 | Auth | `/auth` (sign-in/up/forgot/reset) |
 
 ## 3. Feature inventory (master prompt §25 mapping)
@@ -169,6 +173,13 @@ it. All other migrations are already the source of truth.
 
 - `tsc --noEmit` — clean.
 - `vite build` (dev + production) — clean.
+- No-cart sweep — zero cart routes, icons, counters, add-to-cart actions or
+  copy in `src/` (spec acceptance requirement).
+- Mid-session build break fixed: the new admin routes imported
+  `admin.queries.server.ts` from client code, which TanStack Start's
+  import-protection denies — renamed to `admin.queries.ts` (repo convention:
+  `createServerFn` modules are client-referenceable; `.server.` files are
+  hard server-only) and updated the three import sites. Admin logic untouched.
 - Backend files (`supabase/*`, `src/lib/ai.functions.ts`, `models.server.ts`,
   `src/integrations/supabase/*`) — **untouched** by this session (git history
   shows the backend session's WIP preserved verbatim in the checkpoint commit
