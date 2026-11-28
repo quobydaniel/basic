@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { Home, Search, MessageCircle, Package, User, Bike, ShieldCheck, ArrowUpRight, Store } from "lucide-react";
+import { Home, Search, MessageCircle, User, Bike, ShieldCheck, ArrowUpRight, Store, Sparkles } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { FloatingBuyerAssistant } from "@/components/FloatingBuyerAssistant";
 import { PearlHeader } from "@/components/PearlHeader";
@@ -9,14 +9,15 @@ import { supabase } from "@/integrations/supabase/client";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 
-// Obsidian — buyer tabs. Same IA as the original shell; presentation is
-// after-dark luxury: icons hush to ivory, the active tab wears a gold pin.
+// Approved five-item buyer navigation: HOME | DISCOVER | AI | CHAT | PROFILE.
+// The AI concierge owns the central position (visually prominent — the
+// elevated champagne orb). Orders live under Profile; the desktop header
+// keeps a full Orders link.
 const tabs = [
   { to: "/", label: "Home", icon: Home },
   { to: "/discover", label: "Discover", icon: Search },
-  { to: "/chat", label: "Chats", icon: MessageCircle },
-  { to: "/orders", label: "Orders", icon: Package },
-  { to: "/account", label: "Account", icon: User },
+  { to: "/chat", label: "Chat", icon: MessageCircle },
+  { to: "/account", label: "Profile", icon: User },
 ] as const;
 
 export function AppShell({
@@ -41,8 +42,8 @@ export function AppShell({
   // replaces the tab bar (Temu-style) and the back arrow replaces breadcrumbs.
   const isProductDetail = /^\/s\/[^/]+\/p\/.+/.test(pathname);
   const appSurface = isChat || isProductDetail;
-  const showAssistant =
-    !pathname.startsWith("/chat") && !pathname.startsWith("/account");
+  // The concierge rides every buyer surface — the AI tab in the bottom bar
+  // must open it from anywhere, including the inbox and the account hub.
   const context: "home" | "discover" | "product" | "orders" | "favorites" | "stores" =
     pathname.startsWith("/discover") ? "discover"
     : pathname.startsWith("/s/") ? "product"
@@ -58,7 +59,7 @@ export function AppShell({
       {/* Footer lives ONLY on the Account page now — every other surface
           stays content-first (Jiji/Temu pattern). */}
       {!isProductDetail && !isSellerChat && !isBuyerChatThread && <BottomTabBar />}
-      {showAssistant && <FloatingBuyerAssistant productId={productId} context={context} />}
+      <FloatingBuyerAssistant productId={productId} context={context} />
     </div>
   );
 }
@@ -110,43 +111,61 @@ function BottomTabBar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { user } = useSession();
   const unread = useUnreadChats(user?.id);
+
+  const openConcierge = () =>
+    window.dispatchEvent(new CustomEvent("basic:assistant:open"));
+
+  const tabLink = ({ to, label, icon: Icon }: (typeof tabs)[number]) => {
+    const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
+    return (
+      <Link
+        key={to}
+        to={to}
+        className="relative flex flex-col items-center gap-1 py-2.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground data-[active=true]:text-foreground"
+        data-active={active}
+      >
+        <span className="relative">
+          <Icon
+            className={`h-[18px] w-[18px] transition-colors ${active ? "text-[var(--gold)]" : ""}`}
+            strokeWidth={active ? 2.1 : 1.6}
+          />
+          {to === "/chat" && unread > 0 && (
+            <span className="absolute -right-2 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--gold)] px-1 text-[9px] font-bold text-[var(--gold-foreground)] ring-2 ring-background">
+              {unread > 9 ? "9+" : unread}
+            </span>
+          )}
+        </span>
+        {label}
+        {active && (
+          <span className="absolute top-0 h-[2px] w-8 rounded-full bg-gradient-to-r from-transparent via-gold to-transparent" />
+        )}
+      </Link>
+    );
+  };
+
   return (
     <nav
       aria-label="Primary"
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border/50 bg-background/90 backdrop-blur-lg md:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <ul className="mx-auto grid max-w-2xl grid-cols-5">
-        {tabs.map(({ to, label, icon: Icon }) => {
-          const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
-          return (
-            <li key={to}>
-              <Link
-                to={to}
-                className="relative flex flex-col items-center gap-1 py-3 text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground data-[active=true]:text-foreground"
-                data-active={active}
-              >
-                {/* Active tab = the lemon working accent on the icon; the
-                    label stays ivory. The gilded top pin completes the state. */}
-                <span className="relative">
-                  <Icon
-                    className={`h-[18px] w-[18px] transition-colors ${active ? "text-[var(--gold)]" : ""}`}
-                    strokeWidth={active ? 2.1 : 1.6}
-                  />
-                  {to === "/chat" && unread > 0 && (
-                    <span className="absolute -right-2 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--gold)] px-1 text-[9px] font-bold text-[var(--gold-foreground)] ring-2 ring-background">
-                      {unread > 9 ? "9+" : unread}
-                    </span>
-                  )}
-                </span>
-                {label}
-                {active && (
-                  <span className="absolute top-0 h-[2px] w-8 rounded-full bg-gradient-to-r from-transparent via-gold to-transparent" />
-                )}
-              </Link>
-            </li>
-          );
-        })}
+      <ul className="mx-auto grid max-w-2xl grid-cols-5 items-end">
+        {tabs.slice(0, 2).map(tabLink)}
+        {/* Central AI concierge — the elevated champagne orb. One unified
+            assistant everywhere; this tab is its standing entry point. */}
+        <li className="relative flex justify-center">
+          <button
+            onClick={openConcierge}
+            aria-label="Open the BASIC AI concierge"
+            className="-mt-5 flex h-13 w-13 flex-col items-center justify-center rounded-full bg-gradient-to-b from-gild to-[color-mix(in_oklab,var(--gild),black_18%)] text-gild-foreground shadow-[0_10px_24px_-8px_rgba(198,166,107,0.65)] ring-4 ring-background transition-transform active:scale-95"
+          >
+            <Sparkles className="h-5 w-5" strokeWidth={1.9} />
+          </button>
+          <span className="pointer-events-none absolute -bottom-0.5 text-[8px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            AI
+          </span>
+        </li>
+        {tabs.slice(2).map(tabLink)}
       </ul>
     </nav>
   );

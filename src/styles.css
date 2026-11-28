@@ -9,14 +9,17 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * BASIC · Palm & Gold — After-dark luxury, Ghana colors.
- * Green-cast obsidian surfaces, lemon-green action, champagne-gold premium.
- * Lemon is the working accent: CTAs, unread, presence, active states.
- * Gold (the `gild` token) is reserved metal: Premium, Pro badges, AI
- * surfaces, rating stars, the hero shimmer. Slow, weighted motion;
- * the light still drifts — it never blinks.
- * Palette: Palm obsidian #121511 · Graphite #1B201B · Lemon #A8D94A ·
- * Champagne #D8B36A · Ivory #F3EEE4
+ * BASIC · BASIC PEARL — the house identity.
+ * Light (default): pearl paper #FAF9F6, warm ivory #F5F2EC, soft-white
+ * cards, charcoal ink #242321, champagne-gold accent #C6A66B, muted
+ * secondary #77736D, hairline #EAE6DE. Gold is an ACCENT — rules, rings,
+ * active states, premium surfaces — never a page-wide background.
+ * Dark (optional, `.dark` on <html>): the after-dark "Palm & Gold" house —
+ * green-cast obsidian surfaces, lemon-green action, champagne-gold premium.
+ * Token names are stable across both: components never know the mode.
+ * Palette (light): Pearl #FAF9F6 · Ivory #F5F2EC · White #FFFFFF ·
+ * Champagne #C6A66B · Light champagne #E9D9B7 · Charcoal #242321 ·
+ * Muted #77736D · Border #EAE6DE
  */
 
 @theme inline {
@@ -54,6 +57,12 @@
   --color-gild-foreground: var(--gild-foreground);
   --color-terracotta: var(--terracotta);
   --color-sage: var(--sage);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-error: var(--error);
+  --color-error-foreground: var(--error-foreground);
   --color-ink: var(--ink);
   --color-cream: var(--cream);
   --color-chart-1: var(--chart-1);
@@ -65,14 +74,80 @@
   --font-display: "Cormorant Garamond", ui-serif, Georgia, "Times New Roman", serif;
   --font-sans: "Nunito Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
 
-  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.4), 0 12px 32px oklch(0 0 0 / 0.5);
-  --shadow-lift: 0 2px 6px oklch(0 0 0 / 0.5), 0 28px 64px oklch(0 0 0 / 0.6);
+  --shadow-soft: 0 1px 2px rgba(36, 35, 33, 0.06), 0 12px 32px rgba(36, 35, 33, 0.08);
+  --shadow-lift: 0 2px 6px rgba(36, 35, 33, 0.08), 0 28px 64px rgba(36, 35, 33, 0.12);
+
+  /* Status vocabulary — restrained, pearl-weighted. */
+  --success: #4A7C59;                         /* natural restrained green */
+  --success-foreground: #FFFFFF;
+  --warning: #C08A2D;                         /* warm amber */
+  --warning-foreground: #242321;
+  --error: #A3524B;                           /* sophisticated muted red */
+  --error-foreground: #FFFFFF;
+
+  /* Theme-adaptive glass (pearl in daylight, obsidian after dark). The
+     aurum-* header utilities read these so components never branch. */
+  --glass-bg: rgba(255, 255, 255, 0.66);
+  --glass-bg-hover: rgba(198, 166, 107, 0.12);
+  --glass-border: rgba(174, 151, 112, 0.30);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.75);
 }
 
-/* Palm & Gold — default theme is the after-dark surface. */
+/* BASIC PEARL — the default (daylight) surface. */
 :root {
   --radius: 0.5rem;
 
+  --background: #FAF9F6;                      /* pearl paper */
+  --cream: #F5F2EC;                           /* warm ivory */
+  --foreground: #242321;                      /* charcoal ink */
+  --ink: #242321;
+
+  --card: #FFFFFF;                            /* soft white */
+  --card-foreground: #242321;
+  --popover: #FFFFFF;
+  --popover-foreground: #242321;
+
+  --primary: #242321;                         /* charcoal — primary CTAs */
+  --primary-foreground: #FAF9F6;
+
+  --secondary: #F5F2EC;
+  --secondary-foreground: #242321;
+
+  --muted: #F5F2EC;
+  --muted-foreground: #77736D;
+
+  --accent: #F1EDE3;                          /* pearl hover tint */
+  --accent-foreground: #242321;
+
+  --destructive: #A3524B;
+  --destructive-foreground: #FFFFFF;
+
+  --border: #EAE6DE;                          /* muted hairline */
+  --input: #E3DED3;
+  --ring: #C6A66B;
+
+  /* The accent token everything binds to. On light surfaces gold TEXT
+     deepens to bronze for AA contrast; gild keeps the champagne metal
+     for fills, rules, shimmer and premium surfaces. */
+  --gold: #8A6A2B;
+  --gold-foreground: #FBF7EE;
+  /* `gild` — reserved champagne metal for premium surfaces. */
+  --gild: #C6A66B;
+  --gild-foreground: #242321;
+  --terracotta: #C98A3D;                      /* warm amber for the hero glow */
+  --sage: #6F7F5E;
+
+  --chart-1: #8A6A2B;
+  --chart-2: #C6A66B;
+  --chart-3: #6F7F5E;
+  --chart-4: #C98A3D;
+  --chart-5: #77736D;
+}
+
+/* ── Dark mode — "Palm & Gold", the after-dark house. Same token names,
+   obsidian surfaces. Toggled by adding `.dark` to <html> (see ThemeToggle
+   + the pre-paint script in __root). ── */
+.dark {
   --background: oklch(0.148 0.012 150);       /* palm obsidian — green-cast charcoal */
   --cream: oklch(0.148 0.012 150);
   --foreground: oklch(0.93 0.012 110);        /* ivory, warmed to the green */
@@ -102,67 +177,28 @@
   --input: oklch(0.72 0.08 130 / 16%);
   --ring: oklch(0.84 0.16 125);
 
-  /* The accent token everything binds to — warm gold (aligned with --gild;
-     was lime, identical to --primary, so every gold chip/button rendered
-     lemon. Lime remains --primary only. 2026-11-17). */
+  /* Warm gold — aligned with --gild so gold chips stay champagne metal. */
   --gold: oklch(0.80 0.11 85);
   --gold-foreground: oklch(0.17 0.02 150);
-  /* `gild` — reserved champagne metal for premium surfaces. */
   --gild: oklch(0.80 0.11 85);
   --gild-foreground: oklch(0.17 0.02 150);
-  --terracotta: oklch(0.72 0.10 85);          /* warm gold-amber for the hero glow */
+  --terracotta: oklch(0.72 0.10 85);
   --sage: oklch(0.66 0.07 160);
 
-  --chart-1: oklch(0.84 0.16 125);
-  --chart-2: oklch(0.80 0.11 85);
-  --chart-3: oklch(0.66 0.07 160);
-  --chart-4: oklch(0.72 0.10 85);
-  --chart-5: oklch(0.58 0.06 150);
-}
+  --success: oklch(0.74 0.11 155);
+  --success-foreground: oklch(0.17 0.03 150);
+  --warning: oklch(0.78 0.11 80);
+  --warning-foreground: oklch(0.17 0.02 80);
+  --error: oklch(0.62 0.18 25);
+  --error-foreground: oklch(0.98 0 0);
 
-/* ── Light mode — "Lemon Cream & Champagne". Same house, daylight hours. ──
-   Lemon-tinted paper, espresso ink, action green deepened to leaf so it
-   keeps its weight on a light surface; gold deepens to bronze. Toggled by
-   adding `.light` to <html> (see ThemeToggle + the pre-paint script in
-   __root). */
-.light {
-  --background: oklch(0.972 0.018 110);       /* lemon-cream paper */
-  --cream: oklch(0.972 0.018 110);
-  --foreground: oklch(0.25 0.03 140);         /* deep leaf espresso */
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.4), 0 12px 32px oklch(0 0 0 / 0.5);
+  --shadow-lift: 0 2px 6px oklch(0 0 0 / 0.5), 0 28px 64px oklch(0 0 0 / 0.6);
 
-  --card: oklch(0.99 0.008 110);
-  --card-foreground: oklch(0.25 0.03 140);
-  --popover: oklch(0.99 0.008 110);
-  --popover-foreground: oklch(0.25 0.03 140);
-
-  --primary: oklch(0.56 0.13 140);            /* deep leaf green */
-  --primary-foreground: oklch(0.98 0.01 110);
-
-  --secondary: oklch(0.93 0.025 115);
-  --secondary-foreground: oklch(0.27 0.04 140);
-
-  --muted: oklch(0.93 0.02 115);
-  --muted-foreground: oklch(0.47 0.03 140);
-
-  --accent: oklch(0.91 0.035 115);
-  --accent-foreground: oklch(0.27 0.04 140);
-
-  --destructive: oklch(0.55 0.19 25);
-  --destructive-foreground: oklch(0.98 0 0);
-
-  --border: oklch(0.86 0.03 120);
-  --input: oklch(0.86 0.03 120);
-  --ring: oklch(0.56 0.13 140);
-
-  --gold: oklch(0.56 0.13 140);               /* leaf green on cream */
-  --gold-foreground: oklch(0.98 0.01 110);
-  --gild: oklch(0.62 0.11 80);                /* bronze on ivory */
-  --gild-foreground: oklch(0.98 0.01 85);
-  --terracotta: oklch(0.58 0.11 80);
-  --sage: oklch(0.55 0.08 150);
-
-  --shadow-soft: 0 1px 2px oklch(0.30 0.04 60 / 0.08), 0 12px 32px oklch(0.30 0.04 60 / 0.10);
-  --shadow-lift: 0 2px 6px oklch(0.30 0.04 60 / 0.10), 0 28px 64px oklch(0.30 0.04 60 / 0.14);
+  --glass-bg: rgba(255, 255, 255, 0.06);
+  --glass-bg-hover: rgba(255, 255, 255, 0.10);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 @layer base {
@@ -178,7 +214,8 @@
     font-weight: 500;
     letter-spacing: 0.005em;
   }
-  ::selection { background: oklch(0.84 0.16 125 / 0.30); }
+  ::selection { background: rgba(198, 166, 107, 0.32); }
+  .dark ::selection { background: oklch(0.84 0.16 125 / 0.30); }
 }
 
 @utility no-scrollbar {
@@ -449,23 +486,24 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   PEARL — warm ivory design tokens (Phase: desktop navigation).
-   Integrated beside the existing theme tokens; scoped to the pearl
-   header/mega-menu surfaces so the rest of the app migrates gradually.
+   BASIC PEARL — named brand tokens (the master spec palette).
+   The theme tokens above carry the surfaces; these carry the brand
+   constants so header/menu surfaces can reference the exact spec hexes.
    ═══════════════════════════════════════════════════════════════════ */
 :root {
-  --pearl-bg: #F7F4EE;
+  --pearl-bg: #FAF9F6;
+  --pearl-ivory: #F5F2EC;
   --pearl-surface: #FFFFFF;
   --pearl-glass: rgba(255, 255, 255, 0.76);
   --pearl-glass-strong: rgba(255, 255, 255, 0.92);
-  --pearl-text: #25241F;
-  --pearl-muted: #858176;
-  --pearl-accent: #C6A36A;
-  --pearl-accent-soft: #EAD9BA;
-  --pearl-border: rgba(174, 151, 112, 0.20);
+  --pearl-text: #242321;
+  --pearl-muted: #77736D;
+  --pearl-accent: #C6A66B;
+  --pearl-accent-soft: #E9D9B7;
+  --pearl-border: #EAE6DE;
   --pearl-border-strong: rgba(174, 151, 112, 0.38);
-  --pearl-hover: rgba(198, 163, 106, 0.10);
-  --pearl-shadow: 0 18px 50px -18px rgba(37, 36, 31, 0.28);
+  --pearl-hover: rgba(198, 166, 107, 0.10);
+  --pearl-shadow: 0 18px 50px -18px rgba(36, 35, 33, 0.18);
 }
 
 .pearl-glass {
@@ -504,24 +542,47 @@
   background: var(--pearl-hover);
 }
 
-/* ── AURUM — dark-glass header utilities (approved nav reference) ── */
+/* ── AURUM — header glass utilities, theme-adaptive ──
+   Pearl daylight: frosted white over pearl paper. After-dark: the
+   dark-glass capsule. Components keep one set of class names. */
 .aurum-capsule {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--glass-bg);
   backdrop-filter: blur(20px) saturate(150%);
   -webkit-backdrop-filter: blur(20px) saturate(150%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-inset);
 }
 .aurum-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
   backdrop-filter: blur(16px) saturate(150%);
   -webkit-backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: var(--glass-inset);
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
 }
 .aurum-icon-btn:hover {
-  border-color: rgba(198, 163, 106, 0.55);
-  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(198, 166, 107, 0.55);
+  background: var(--glass-bg-hover);
+}
+
+/* ── PEARL surfaces for cards/panels that need the brand treatment ── */
+.pearl-card {
+  background: var(--pearl-surface);
+  border: 1px solid var(--pearl-border);
+  border-radius: calc(var(--radius) + 6px);
+  box-shadow: var(--shadow-soft);
+}
+.pearl-input {
+  background: var(--pearl-surface);
+  border: 1px solid var(--input);
+  border-radius: calc(var(--radius) + 2px);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.pearl-input:focus-visible {
+  outline: none;
+  border-color: var(--pearl-accent);
+  box-shadow: 0 0 0 3px rgba(198, 166, 107, 0.22);
 }

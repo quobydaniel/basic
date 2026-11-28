@@ -4,35 +4,39 @@ import { Moon, Sun } from "lucide-react";
 const KEY = "sellio:theme";
 
 /**
- * ThemeToggle — dark (Obsidian, the house default) ⇄ light (Ivory & Champagne).
+ * ThemeToggle — BASIC PEARL (light, the house default) ⇄ Palm & Gold (dark).
  * Persists to localStorage; the pre-paint script in __root applies the saved
  * choice before first paint, so switching never flashes the wrong surface.
  */
 export function ThemeToggle() {
-  const [light, setLight] = useState(false);
+  const [dark, setDark] = useState(false);
 
-  // Sync with whatever the pre-paint script decided (SSR always assumes dark).
+  // Sync with whatever the pre-paint script decided (SSR always assumes pearl).
   useEffect(() => {
-    setLight(document.documentElement.classList.contains("light"));
+    setDark(document.documentElement.classList.contains("dark"));
   }, []);
 
   function toggle() {
-    const next = !light;
-    setLight(next);
-    document.documentElement.classList.toggle("light", next);
+    const next = !dark;
+    setDark(next);
+    document.documentElement.classList.toggle("dark", next);
     try {
-      localStorage.setItem(KEY, next ? "light" : "dark");
+      localStorage.setItem(KEY, next ? "dark" : "light");
     } catch {}
+    // Keep the mobile browser chrome in step with the surface.
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", next ? "#121511" : "#FAF9F6");
   }
 
   return (
     <button
       onClick={toggle}
-      aria-label={light ? "Switch to dark mode" : "Switch to light mode"}
-      title={light ? "Dark — after hours" : "Light — daylight"}
+      aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+      title={dark ? "Light — daylight pearl" : "Dark — after hours"}
       className="grid h-9 w-9 place-items-center rounded-full text-foreground/80 transition-colors hover:bg-accent hover:text-gold"
     >
-      {light ? (
+      {dark ? (
         <Sun className="h-[18px] w-[18px]" strokeWidth={1.6} />
       ) : (
         <Moon className="h-[18px] w-[18px]" strokeWidth={1.6} />

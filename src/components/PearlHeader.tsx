@@ -34,6 +34,8 @@ import { useSession } from "@/lib/session";
 import { useCategoryStats } from "@/lib/category-stats";
 import { formatGHS } from "@/lib/format";
 import { NotificationBell } from "@/components/NotificationBell";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { useCart } from "@/lib/cart";
 
 type Cat = { id: string; slug: string; name: string; parent_id: string | null };
 
@@ -47,7 +49,7 @@ const NAV = [
 
 const CAPSULE_ITEM =
   "flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-semibold transition-colors";
-const CAPSULE_IDLE = `${CAPSULE_ITEM} text-foreground/80 hover:bg-white/[0.08] hover:text-foreground`;
+const CAPSULE_IDLE = `${CAPSULE_ITEM} text-foreground/80 hover:bg-[var(--glass-bg-hover)] hover:text-foreground`;
 const CAPSULE_ACTIVE = `${CAPSULE_ITEM} bg-[var(--gold)] text-[var(--gold-foreground)] shadow-[0_6px_18px_-6px_rgba(198,163,106,0.7)]`;
 
 export function PearlHeader() {
@@ -96,7 +98,7 @@ export function PearlHeader() {
         <div ref={megaRef} className="relative hidden min-w-0 items-center lg:flex">
           <nav
             aria-label="Primary"
-            className="aurum-capsule flex items-center gap-1 rounded-full border border-white/12 bg-white/[0.06] px-2 py-1.5 backdrop-blur-xl"
+            className="aurum-capsule flex items-center gap-1 rounded-full px-2 py-1.5"
           >
             {NAV.map(({ to, label, icon: Icon, exact, mega }) => {
               const active = exact ? pathname === to : pathname.startsWith(to);
@@ -137,8 +139,18 @@ export function PearlHeader() {
           </nav>
         </div>
 
-        {/* ── RIGHT — search · favorites · notifications · account ── */}
+        {/* ── RIGHT — AI · search · favorites · theme · notifications · account ── */}
         <div className="flex shrink-0 items-center gap-2.5">
+          {/* Desktop contextual AI entry — the same unified concierge the
+              mobile centre tab opens (basic:assistant:open). */}
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("basic:assistant:open"))}
+            aria-label="Open the BASIC AI concierge"
+            title="AI concierge"
+            className="aurum-icon-btn hidden h-11 w-11 place-items-center text-gold hover:text-gold md:grid"
+          >
+            <Sparkles className="h-[18px] w-[18px]" strokeWidth={1.7} />
+          </button>
           <HeaderSearch />
           <Link
             to="/favorites"
@@ -148,6 +160,10 @@ export function PearlHeader() {
           >
             <Heart className="h-[18px] w-[18px]" strokeWidth={1.7} />
           </Link>
+          <CartButton />
+          <div className="aurum-icon-btn grid h-11 w-11 place-items-center">
+            <ThemeToggle />
+          </div>
           <div className="hidden sm:block">
             <NotificationBell variant="aurum" />
           </div>
@@ -155,6 +171,28 @@ export function PearlHeader() {
         </div>
       </div>
     </header>
+  );
+}
+
+/* Cart button — badge reflects the client-side cart (localStorage store). */
+function CartButton() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const items = useCart();
+  const count = items.reduce((s, i) => s + i.qty, 0);
+  return (
+    <Link
+      to="/cart"
+      aria-label={`Cart — ${count} item${count === 1 ? "" : "s"}`}
+      data-active={pathname.startsWith("/cart")}
+      className="aurum-icon-btn relative grid h-11 w-11 place-items-center text-foreground/90 hover:text-gold data-[active=true]:text-gold"
+    >
+      <ShoppingBag className="h-[18px] w-[18px]" strokeWidth={1.7} />
+      {count > 0 && (
+        <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-gold px-1 text-[9px] font-bold text-gold-foreground ring-2 ring-background">
+          {count > 9 ? "9+" : count}
+        </span>
+      )}
+    </Link>
   );
 }
 
@@ -228,7 +266,7 @@ function AccountMenu() {
         onClick={() => (user ? setOpen((v) => !v) : navigate({ to: "/auth" }))}
         aria-label={user ? `Account — ${name}` : "Sign in"}
         aria-expanded={open}
-        className="flex h-11 items-center gap-2 rounded-full border border-white/12 bg-white/[0.06] pl-1.5 pr-2.5 backdrop-blur transition-colors hover:border-gold/50"
+        className="aurum-icon-btn h-11 items-center gap-2 rounded-full pl-1.5 pr-2.5 hover:border-gold/50"
       >
         {profile.data?.avatar_url ? (
           <img src={profile.data.avatar_url} alt="" className="h-8 w-8 rounded-full object-cover" />

@@ -91,7 +91,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { name: "theme-color", content: "#121114" },
+      { name: "theme-color", content: "#FAF9F6" },
       { title: "BASIC — Ghana's premium social marketplace" },
       { name: "description", content: "Discover and shop from Ghana's best independent brands. Sellers, launch your storefront in minutes and sell across Instagram, TikTok, and WhatsApp." },
       { name: "author", content: "BASIC" },
@@ -107,11 +107,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "manifest", href: "/manifest.webmanifest" },
     ],
     scripts: [
-      // Pre-paint theme: apply the saved mode before first render so light-mode
-      // users never flash the dark surface. Default (no saved choice) = dark.
+      // Pre-paint theme: apply the saved mode before first render so dark-mode
+      // users never flash the pearl surface. Default (no saved choice) = BASIC
+      // PEARL light.
       {
         type: "text/javascript",
-        children: `try{if(localStorage.getItem("sellio:theme")==="light")document.documentElement.classList.add("light")}catch(e){}`,
+        children: `try{if(localStorage.getItem("sellio:theme")==="dark")document.documentElement.classList.add("dark")}catch(e){}`,
       },
     ],
   }),
