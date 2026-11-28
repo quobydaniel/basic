@@ -19,8 +19,10 @@
 //   - retired/EOL: minimaxai/minimax-m3 (Gone 2026-09-09),
 //     deepseek-ai/deepseek-v4-flash-0731 (Gone 2026-09-21)
 export const AI_MODELS = {
-  // Multi-image vision → extracts title/description/specs/price from a product photo.
-  generateListingFromPhotos: "meta/llama-3.2-90b-vision-instruct",
+  // Multi-image vision → extracts title/description/specs/price from a product
+  // photo. llama-3.2-90b-vision went 410 Gone from NIM (probed 2026-11-17);
+  // nemotron-3-nano-omni verified same day: accepts images, 3.5s, clean content.
+  generateListingFromPhotos: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
 
   // Marketing copy: was DeepSeek v4-flash per owner's pick — that line EOL'd
   // (2026-09-21) and v4.1-flash hangs. M3.1 flash until deepseek answers again.
@@ -29,8 +31,10 @@ export const AI_MODELS = {
   // Pure server-side heuristic — no AI call needed.
   computeStoreInsights: "",
 
-  // Floating seller assistant: MiniMax per owner's explicit request (m3.1 now).
-  assistantChat: "minimaxai/minimax-m3.1-flash",
+  // Floating seller assistant: was minimax-m3.1-flash — benchmarked 11-16s
+  // per reply (reasoning tokens) on 2026-11-17. nemotron-3-nano-omni answered
+  // the same prompt in 3.9s with clean content — 3-4× faster, same tone.
+  assistantChat: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
 } as const;
 
 export type AiFnName = keyof typeof AI_MODELS;

@@ -1,7 +1,25 @@
-import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, redirect, useRouterState } from "@tanstack/react-router";
 import { Package, MapPin, Wallet, User as UserIcon } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/rider")({
+  ssr: false,
+  // Auth guard — /rider pages showed the full rider shell to signed-out
+  // visitors (audit P2). Same session-poll pattern as the /store guard.
+  beforeLoad: async () => {
+    let session: unknown = null;
+    for (let i = 0; i < 20; i++) {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        session = data.session;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (!session) {
+      throw redirect({ to: "/auth" });
+    }
+  },
   component: RiderLayout,
 });
 

@@ -107,7 +107,7 @@ export function LocationPicker({ direction = "down", wide = false }: { direction
   }, [tree, activeRegion, q]);
 
   /** Letter-divider groups, Jiji-style (A…, B…, …) inside CSS columns. */
-  function withLetterDividers(items: { key: string; name: string; render: () => React.ReactNode }) {
+  function withLetterDividers(items: { key: string; name: string; render: () => React.ReactNode }[]) {
     const out: React.ReactNode[] = [];
     let letter = "";
     for (const item of items) {

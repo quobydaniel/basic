@@ -186,12 +186,12 @@ function PricingPage() {
       <div className="mx-auto max-w-2xl px-4 pt-6 md:max-w-4xl md:px-8 md:pt-10">
         {/* Hero */}
         <div className="text-center">
-          <p className="inline-flex items-center gap-2 rounded-full border border-gold/40 bg-gold/10 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-gold">
+          <p className="inline-flex items-center gap-2 rounded-full border border-gild/40 bg-gild/10 px-4 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-gild">
             <Gem className="h-3.5 w-3.5" /> BASIC Premium
           </p>
           <h1 className="mt-4 font-display text-4xl leading-tight md:text-5xl">
             Free to shop. Free to sell.
-            <span className="block text-gold">Premium when you're ready.</span>
+            <span className="block text-gild">Premium when you're ready.</span>
           </h1>
           <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
             Every BASIC account starts free. Upgrade for the AI toolkit, alerts and perks — cancel anytime.
@@ -205,7 +205,7 @@ function PricingPage() {
               key={t}
               onClick={() => setTab(t)}
               data-active={active === t}
-              className="flex items-center justify-center gap-1.5 rounded-full py-2 font-medium data-[active=true]:bg-gold data-[active=true]:text-gold-foreground"
+              className="flex items-center justify-center gap-1.5 rounded-full py-2 font-medium data-[active=true]:bg-gild data-[active=true]:text-gild-foreground"
             >
               {t === "buyers" ? "For buyers" : (<><StoreIcon className="h-3.5 w-3.5" /> For sellers</>)}
             </button>
@@ -221,12 +221,12 @@ function PricingPage() {
                 key={p.key}
                 className={`relative flex flex-col rounded-3xl border p-5 ${
                   p.highlight
-                    ? "border-gold/60 bg-gradient-to-b from-gold/10 via-card to-card shadow-[0_0_40px_-12px_var(--gold)]"
+                    ? "border-gild/60 bg-gradient-to-b from-gild/10 via-card to-card shadow-[0_0_40px_-12px_var(--gild)]"
                     : "border-border bg-card"
                 }`}
               >
                 {(p.highlight || current) && (
-                  <p className="absolute -top-2.5 left-5 rounded-full bg-gold px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gold-foreground">
+                  <p className="absolute -top-2.5 left-5 rounded-full bg-gild px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gild-foreground">
                     {current ? "Your current plan" : "Most popular"}
                   </p>
                 )}
@@ -240,7 +240,7 @@ function PricingPage() {
                   {p.features.map((f) => (
                     <li key={f.label} className="flex items-start gap-2 text-xs leading-snug">
                       {f.ok ? (
-                        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" strokeWidth={2.5} />
+                        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gild" strokeWidth={2.5} />
                       ) : (
                         <Minus className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
                       )}
@@ -254,7 +254,7 @@ function PricingPage() {
                     target="_blank"
                     rel="noreferrer"
                     className={`mt-5 inline-flex items-center justify-center gap-1.5 rounded-full py-2.5 text-sm font-semibold transition-opacity hover:opacity-90 ${
-                      p.highlight ? "bg-gold text-gold-foreground" : "border border-gold text-gold"
+                      p.highlight ? "bg-gild text-gild-foreground" : "border border-gild text-gild"
                     }`}
                   >
                     <Sparkles className="h-3.5 w-3.5" /> {p.cta}
@@ -280,7 +280,7 @@ function PricingPage() {
                 </th>
                 {plans.map((p) => (
                   <th key={p.key} className="px-4 py-3 text-center">
-                    <span className={`block text-xs font-semibold ${p.highlight ? "text-gold" : ""}`}>{p.name}</span>
+                    <span className={`block text-xs font-semibold ${p.highlight ? "text-gild" : ""}`}>{p.name}</span>
                     <span className="block text-[10px] font-normal text-muted-foreground">{p.price}</span>
                   </th>
                 ))}
@@ -295,7 +295,7 @@ function PricingPage() {
                     return (
                       <td key={p.key} className="px-4 py-2.5 text-center text-xs">
                         {f.ok ? (
-                          <span className="inline-flex items-center justify-center gap-1 text-gold">
+                          <span className="inline-flex items-center justify-center gap-1 text-gild">
                             <Check className="h-3.5 w-3.5 shrink-0" strokeWidth={2.5} />
                             {f.alt && (
                               <span className="text-[10px] font-medium">
@@ -316,7 +316,7 @@ function PricingPage() {
         </div>
 
         {/* No payment rail yet — say so, and give the next step */}
-        <div className="mt-8 rounded-2xl border border-gold/30 bg-gold/5 p-4 text-center">
+        <div className="mt-8 rounded-2xl border border-gild/30 bg-gild/5 p-4 text-center">
           <p className="text-sm font-medium">Mobile money & card billing are launching soon.</p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             Reserving a plan today is free — you'll be switched on the moment billing goes live, with your first month on us.

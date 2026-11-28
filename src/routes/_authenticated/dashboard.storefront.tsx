@@ -1,10 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { ImagePlus } from "lucide-react";
+import { ImagePlus, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
+import { AI_CHARACTERS, characterById } from "@/lib/ai-characters";
 
 const REGIONS = [
   "Ahafo", "Ashanti", "Bono", "Bono East", "Central", "Eastern", "Greater Accra",
@@ -34,9 +35,9 @@ function StorefrontPage() {
     queryKey: ["my-store-full", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("stores")
-        .select("id, name, tagline, description, logo_url, banner_url, region, city, area, ghana_post_gps, whatsapp_number, payment_terms, theme")
+        .select("id, name, tagline, description, logo_url, banner_url, region, city, area, ghana_post_gps, whatsapp_number, payment_terms, theme, plan, ai_character")
         .eq("owner_id", user!.id)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -51,6 +52,7 @@ function StorefrontPage() {
     region: "", city: "", area: "", ghana_post_gps: "", whatsapp_number: "",
     payment_terms: ["pay_on_delivery"] as string[],
     theme: { accent: "" } as { accent: string },
+    ai_character: "" as string,
   });
 
   useEffect(() => {
@@ -69,12 +71,13 @@ function StorefrontPage() {
       // Stores that never picked an accent have theme = null — default so
       // the picker never reads into undefined.
       theme: (store.data.theme as { accent: string } | null) ?? { accent: "" },
+      ai_character: (store.data as any).ai_character ?? "",
     });
   }, [store.data]);
 
   const save = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("stores").update(form).eq("id", store.data!.id);
+      const { error } = await (supabase as any).from("stores").update(form).eq("id", store.data!.id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -97,6 +100,8 @@ function StorefrontPage() {
   if (!store.data) {
     return <div className="p-8 pb-24 text-sm text-muted-foreground">You need a store first.</div>;
   }
+
+  const isProStore = (store.data as any)?.plan === "pro";
 
   return (
     <div className="p-4 pb-24 md:p-8">
@@ -149,6 +154,48 @@ function StorefrontPage() {
             ))}
           </div>
         </div>
+        {/* AI shopkeeper — Premium. A tiny character greets buyers on the
+            storefront instead of the generic assistant pill, and the chat
+            AI role-plays as them. */}
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5 text-[var(--gild)]" /> AI shopkeeper character
+            </p>
+            {(store.data as any)?.plan === "pro" ? (
+              <span className="rounded-full border border-[var(--gild)]/40 bg-[var(--gild)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--gild)]">Pro</span>
+            ) : (
+              <Link to="/pricing" className="rounded-full border border-[var(--gild)]/40 bg-[var(--gild)]/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--gild)] hover:opacity-80">
+                ✦ Premium
+              </Link>
+            )}
+          </div>
+          <div className={`grid grid-cols-3 gap-2 sm:grid-cols-6 ${isProStore ? "" : "pointer-events-none opacity-50"}`}>
+            {AI_CHARACTERS.map((c) => {
+              const selected = form.ai_character === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, ai_character: selected ? "" : c.id }))}
+                  title={c.blurb}
+                  className={`flex flex-col items-center gap-1 rounded-2xl border p-2.5 text-center transition-colors ${selected ? "border-[var(--gold)] bg-[var(--gold)]/10" : "border-border bg-background hover:border-gold/50"}`}
+                >
+                  <span aria-hidden className="text-2xl leading-none">{c.emoji}</span>
+                  <span className="text-[11px] font-semibold">{c.name}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+            {form.ai_character
+              ? `${characterById(form.ai_character)?.name} ${characterById(form.ai_character)?.emoji} greets buyers on your storefront and the chat AI role-plays as them.`
+              : isProStore
+                ? "Pick a character to greet buyers on your storefront — otherwise the plain assistant pill shows."
+                : "Pick a character to greet buyers on your storefront — Premium stores only."}
+          </p>
+        </div>
+
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-muted-foreground">About your store</span>
           <textarea

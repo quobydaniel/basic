@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect, useDeferredValue } from "react";
-import { Search, SlidersHorizontal } from "lucide-react";
+import { Search, SlidersHorizontal, X, MapPin } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { supabase } from "@/integrations/supabase/client";
 import { ProductCardTile } from "./index";
@@ -45,7 +45,7 @@ function Discover() {
   const [showFilters, setShowFilters] = useState(false);
   const [minPrice, setMinPrice] = useState<string>(search.min != null ? String(search.min) : "");
   const [maxPrice, setMaxPrice] = useState<string>(search.max != null ? String(search.max) : "");
-  const { location: buyerLoc } = useBuyerLocation();
+  const { location: buyerLoc, clear: clearBuyerLoc } = useBuyerLocation();
   const activeCat = search.category;
   const sort = search.sort ?? "new";
 
@@ -91,17 +91,26 @@ function Discover() {
     },
   });
 
-  function applyPrice() {
+  /* Push a new min/max pair (either may be empty = unbounded) and keep the
+     local inputs in step — used by Apply and by the removable filter chips. */
+  function pushPrice(nextMin: string, nextMax: string) {
+    setMinPrice(nextMin);
+    setMaxPrice(nextMax);
     navigate({
       to: "/discover",
       search: {
-        ...(q ? { q } : {}),
+        ...(deferredQ ? { q: deferredQ } : {}),
         ...(activeCat ? { category: activeCat } : {}),
-        ...(minPrice ? { min: Number(minPrice) } : {}),
-        ...(maxPrice ? { max: Number(maxPrice) } : {}),
+        ...(nextMin ? { min: Number(nextMin) } : {}),
+        ...(nextMax ? { max: Number(nextMax) } : {}),
         ...(sort !== "new" ? { sort } : {}),
       },
     });
+  }
+
+  function applyPrice() {
+    pushPrice(minPrice, maxPrice);
+    setShowFilters(false); // applying = done refining; show the results
   }
 
   function setSort(next: "new" | "price-asc" | "price-desc") {
@@ -117,7 +126,7 @@ function Discover() {
     });
   }
 
-  const filtersActive = search.min != null || search.max != null || !!buyerLoc;
+  const activeCount = (search.min != null ? 1 : 0) + (search.max != null ? 1 : 0) + (buyerLoc ? 1 : 0);
 
   return (
     <AppShell>
@@ -126,9 +135,14 @@ function Discover() {
           <h1 className="font-display text-3xl">Discover</h1>
           <button
             onClick={() => setShowFilters((v) => !v)}
-            className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${filtersActive ? "border-[var(--gold)] bg-[var(--gold)]/10 text-gold" : "border-border text-muted-foreground hover:bg-accent"}`}
+            className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${activeCount > 0 ? "border-[var(--gold)] bg-[var(--gold)]/10 text-gold" : "border-border text-muted-foreground hover:bg-accent"}`}
           >
-            <SlidersHorizontal className="h-3.5 w-3.5" /> Filters{filtersActive && <span className="h-1.5 w-1.5 rounded-full bg-gold" aria-hidden />}
+            <SlidersHorizontal className="h-3.5 w-3.5" /> Filters
+            {activeCount > 0 && (
+              <span className="grid h-4 min-w-4 place-items-center rounded-full bg-[var(--gold)] px-1 text-[10px] font-bold text-[var(--gold-foreground)]">
+                {activeCount}
+              </span>
+            )}
           </button>
         </div>
         <p className="mt-1 hidden text-sm text-muted-foreground sm:block">Find your next favorite Ghanaian brand.</p>
@@ -143,41 +157,88 @@ function Discover() {
           />
         </div>
 
+        {/* Active filters stay visible — and dismissible — even with the
+            panel closed. One chip per active filter + Clear all. */}
+        {activeCount > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {buyerLoc && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--gold)]/50 bg-[var(--gold)]/10 px-3 py-1 text-xs font-medium text-foreground">
+                <MapPin className="h-3 w-3 text-[var(--gold)]" />
+                {[buyerLoc.area, buyerLoc.city].filter(Boolean).join(", ") || buyerLoc.region}
+                <button onClick={clearBuyerLoc} aria-label="Clear location filter" className="text-muted-foreground transition-colors hover:text-foreground">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+            {search.min != null && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--gold)]/50 bg-[var(--gold)]/10 px-3 py-1 text-xs font-medium text-foreground">
+                GH₵{search.min.toLocaleString()}+
+                <button onClick={() => pushPrice("", search.max != null ? String(search.max) : "")} aria-label="Clear minimum price" className="text-muted-foreground transition-colors hover:text-foreground">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+            {search.max != null && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--gold)]/50 bg-[var(--gold)]/10 px-3 py-1 text-xs font-medium text-foreground">
+                ≤ GH₵{search.max.toLocaleString()}
+                <button onClick={() => pushPrice(search.min != null ? String(search.min) : "", "")} aria-label="Clear maximum price" className="text-muted-foreground transition-colors hover:text-foreground">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )}
+            <button
+              onClick={() => {
+                pushPrice("", "");
+                clearBuyerLoc();
+              }}
+              className="px-1 text-xs font-medium text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
+
         {showFilters && (
           <div className="mt-3 rounded-2xl border border-border bg-card p-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Location</p>
-            <div className="mt-2">
-              <LocationPicker />
+            <div className="md:grid md:grid-cols-2 md:gap-6">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Location</p>
+                <div className="mt-2">
+                  <LocationPicker />
+                </div>
+                {buyerLoc && (
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    Showing sellers in <span className="font-medium text-foreground">{[buyerLoc.area, buyerLoc.city, buyerLoc.region].filter(Boolean).join(" · ")}</span>.
+                  </p>
+                )}
+              </div>
+              <div className="mt-4 md:mt-0">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Price (GH₵)</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    value={minPrice}
+                    onChange={(e) => setMinPrice(e.target.value.replace(/\D/g, ""))}
+                    inputMode="numeric"
+                    placeholder="Min"
+                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                  />
+                  <span className="text-muted-foreground">–</span>
+                  <input
+                    value={maxPrice}
+                    onChange={(e) => setMaxPrice(e.target.value.replace(/\D/g, ""))}
+                    inputMode="numeric"
+                    placeholder="Max"
+                    className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
+                  />
+                  <button
+                    onClick={applyPrice}
+                    className="shrink-0 rounded-xl bg-[var(--gold)] px-4 py-2 text-sm font-semibold text-[var(--gold-foreground)] hover:brightness-110"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
             </div>
-            <p className="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">Price (GH₵)</p>
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                value={minPrice}
-                onChange={(e) => setMinPrice(e.target.value.replace(/\D/g, ""))}
-                inputMode="numeric"
-                placeholder="Min"
-                className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
-              />
-              <span className="text-muted-foreground">–</span>
-              <input
-                value={maxPrice}
-                onChange={(e) => setMaxPrice(e.target.value.replace(/\D/g, ""))}
-                inputMode="numeric"
-                placeholder="Max"
-                className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm"
-              />
-              <button
-                onClick={applyPrice}
-                className="shrink-0 rounded-xl bg-[var(--gold)] px-4 py-2 text-sm font-semibold text-[var(--gold-foreground)] hover:brightness-110"
-              >
-                Apply
-              </button>
-            </div>
-            {buyerLoc && (
-              <p className="mt-3 text-xs text-muted-foreground">
-                Showing sellers in <span className="font-medium text-foreground">{[buyerLoc.area, buyerLoc.city, buyerLoc.region].filter(Boolean).join(" · ")}</span> — change via the location chip above.
-              </p>
-            )}
           </div>
         )}
       </div>

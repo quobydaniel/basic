@@ -47,7 +47,7 @@ function SellerAutoPilot() {
         if (!ids.length) return;
         const { data: convos } = await supabase
           .from("conversations")
-          .select("id, store_id, store:stores(auto_pilot, plan)")
+          .select("id, store_id, ai_enabled, store:stores(auto_pilot, plan)")
           .in("store_id", ids)
           // unread_seller = messages the seller hasn't read (fresh buyer
           // pings). The old condition polled unread_buyer — conversations
@@ -60,6 +60,7 @@ function SellerAutoPilot() {
           if (stopped) return;
           const st = c.store ?? {};
           if (!st.auto_pilot || st.plan !== "pro") continue;
+          if (c.ai_enabled === false) continue; // seller paused this chat
           if (!acquireAutoPilot(c.id)) continue;
           reply({ data: { conversation_id: c.id } })
             .then(() => qc.invalidateQueries({ queryKey: ["msgs", c.id] }))

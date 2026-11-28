@@ -1226,12 +1226,17 @@ export type Database = {
         Row: {
           affiliate_commission_pct: number
           allow_affiliates: boolean
+          ai_min_price: number | null
+          attributes: Json | null
           base_price: number
           category_id: string | null
           collection_id: string | null
           compare_at_price: number | null
           created_at: string
           currency: string
+          delivery_available: boolean | null
+          delivery_location: string | null
+          delivery_time: string | null
           description: string | null
           dimensions: Json | null
           external_url: string | null
@@ -1239,6 +1244,11 @@ export type Database = {
           latitude: number | null
           location: string | null
           longitude: number | null
+          negotiable: boolean | null
+          payment_type: string | null
+          returns_available: boolean | null
+          returns_note: string | null
+          returns_period: string | null
           seo_description: string | null
           seo_title: string | null
           slug: string
@@ -1246,21 +1256,28 @@ export type Database = {
           status: Database["public"]["Enums"]["product_status"]
           store_id: string
           tags: string[]
+          swap_available: boolean | null
           title: string
           type: Database["public"]["Enums"]["product_type"]
           updated_at: string
           weight_grams: number | null
+          views: number
           weight_kg: number | null
         }
         Insert: {
           affiliate_commission_pct?: number
           allow_affiliates?: boolean
+          ai_min_price?: number | null
+          attributes?: Json | null
           base_price?: number
           category_id?: string | null
           collection_id?: string | null
           compare_at_price?: number | null
           created_at?: string
           currency?: string
+          delivery_available?: boolean | null
+          delivery_location?: string | null
+          delivery_time?: string | null
           description?: string | null
           dimensions?: Json | null
           external_url?: string | null
@@ -1268,6 +1285,11 @@ export type Database = {
           latitude?: number | null
           location?: string | null
           longitude?: number | null
+          negotiable?: boolean | null
+          payment_type?: string | null
+          returns_available?: boolean | null
+          returns_note?: string | null
+          returns_period?: string | null
           seo_description?: string | null
           seo_title?: string | null
           slug: string
@@ -1275,21 +1297,28 @@ export type Database = {
           status?: Database["public"]["Enums"]["product_status"]
           store_id: string
           tags?: string[]
+          swap_available?: boolean | null
           title: string
           type?: Database["public"]["Enums"]["product_type"]
           updated_at?: string
           weight_grams?: number | null
+          views?: number
           weight_kg?: number | null
         }
         Update: {
           affiliate_commission_pct?: number
           allow_affiliates?: boolean
+          ai_min_price?: number | null
+          attributes?: Json | null
           base_price?: number
           category_id?: string | null
           collection_id?: string | null
           compare_at_price?: number | null
           created_at?: string
           currency?: string
+          delivery_available?: boolean | null
+          delivery_location?: string | null
+          delivery_time?: string | null
           description?: string | null
           dimensions?: Json | null
           external_url?: string | null
@@ -1297,6 +1326,11 @@ export type Database = {
           latitude?: number | null
           location?: string | null
           longitude?: number | null
+          negotiable?: boolean | null
+          payment_type?: string | null
+          returns_available?: boolean | null
+          returns_note?: string | null
+          returns_period?: string | null
           seo_description?: string | null
           seo_title?: string | null
           slug?: string
@@ -1304,10 +1338,12 @@ export type Database = {
           status?: Database["public"]["Enums"]["product_status"]
           store_id?: string
           tags?: string[]
+          swap_available?: boolean | null
           title?: string
           type?: Database["public"]["Enums"]["product_type"]
           updated_at?: string
           weight_grams?: number | null
+          views?: number
           weight_kg?: number | null
         }
         Relationships: [

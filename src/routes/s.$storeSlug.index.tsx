@@ -64,6 +64,7 @@ function StorefrontPage() {
   const [sort, setSort] = useState<SortKey>("relevance");
   const [following, setFollowing] = useState<boolean | null>(null);
   const [topMode, setTopMode] = useState<"sold" | "rating">("sold");
+
   const store = useQuery({
     queryKey: ["store", storeSlug],
     queryFn: async () => {
@@ -420,8 +421,17 @@ function StorefrontPage() {
             </label>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3 pb-16 md:grid-cols-4 md:gap-5">
+            {products.isLoading &&
+              [0, 1, 2, 3].map((i) => (
+                <div key={i} className="aspect-[4/5] animate-pulse rounded-2xl bg-muted/40" aria-hidden />
+              ))}
             {sorted.map((p) => <ProductCardTile key={p.id} p={p as any} />)}
-            {sorted.length === 0 && (
+            {!products.isLoading && products.isError && (
+              <p className="col-span-full py-12 text-center text-sm text-muted-foreground">
+                Couldn't load this store's items — refresh to retry.
+              </p>
+            )}
+            {!products.isLoading && !products.isError && sorted.length === 0 && (
               <p className="col-span-full py-12 text-center text-sm text-muted-foreground">
                 {q ? `Nothing matches "${q}".` : "This store hasn't listed products yet."}
               </p>
@@ -580,7 +590,7 @@ function StorefrontPage() {
         </div>
       )}
 
-      <StoreAssistant store={{ name: s.name, slug: s.slug, logo_url: s.logo_url, theme: s.theme, plan: s.plan }} />
+      <StoreAssistant store={{ name: s.name, slug: s.slug, logo_url: s.logo_url, theme: s.theme, plan: s.plan, ai_character: (s as any).ai_character ?? null, ai_greeting: (s as any).ai_greeting ?? null }} />
       {storyOpen && liveStories.length > 0 && (
         <StoryViewer stories={liveStories} storeSlug={s.slug} storeName={s.name} logoUrl={s.logo_url} accent={accent} onClose={() => setStoryOpen(false)} />
       )}

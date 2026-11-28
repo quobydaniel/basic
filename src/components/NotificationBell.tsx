@@ -35,7 +35,7 @@ function timeAgo(iso: string) {
   return `${Math.floor(s / 86400)}d`;
 }
 
-export function NotificationBell() {
+export function NotificationBell({ variant = "default" }: { variant?: "default" | "aurum" } = {}) {
   const { user } = useSession();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -134,45 +134,64 @@ export function NotificationBell() {
       <button
         onClick={() => setOpen((v) => !v)}
         aria-label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"}
-        className="relative grid h-9 w-9 place-items-center rounded-full text-foreground hover:bg-accent"
+        className={`relative grid h-9 w-9 place-items-center rounded-full transition-colors ${
+          variant === "aurum"
+            ? "aurum-icon-btn h-11 w-11 text-foreground/90 hover:text-gold"
+            : "text-foreground/80 hover:bg-accent hover:text-gold"
+        }`}
       >
-        <Bell className="h-5 w-5" />
+        <Bell className="h-[18px] w-[18px]" strokeWidth={1.6} />
         {unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-[var(--gold)] px-1 text-[10px] font-semibold text-[var(--gold-foreground)]">
+          <span
+            className={`absolute -right-0.5 -top-0.5 grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-bold text-white ${
+              variant === "aurum"
+                ? "bg-[#E5484D] ring-2 ring-background"
+                : "bg-[var(--gold)] text-[var(--gold-foreground)]"
+            }`}>
             {unread > 9 ? "9+" : unread}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-50 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
-          <div className="flex items-center justify-between border-b border-border/60 px-4 py-2.5">
-            <p className="font-display text-sm">Notifications</p>
+        <div
+          className={`absolute right-0 top-12 z-50 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl shadow-2xl ${
+            variant === "aurum"
+              ? "border border-gold/25 bg-popover/95 backdrop-blur-xl"
+              : "border border-border bg-card"
+          }`}
+        >
+          <div className={`flex items-center justify-between px-4 py-2.5 ${variant === "aurum" ? "border-b border-[var(--pearl-border)]" : "border-b border-border/60"}`}>
+            <p className={`font-display text-sm ${variant === "aurum" ? "text-[var(--pearl-text)]" : ""}`}>Notifications</p>
             {unread > 0 && (
-              <button onClick={markAllRead} className="text-xs text-primary hover:underline">
+              <button onClick={markAllRead} className={`text-xs hover:underline ${variant === "aurum" ? "text-[var(--pearl-accent)]" : "text-primary"}`}>
                 Mark all read
               </button>
             )}
           </div>
           <div className="max-h-80 overflow-y-auto">
             {(notifs.data ?? []).length === 0 && (
-              <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nothing yet.</p>
+              <p className={`px-4 py-8 text-center text-sm ${variant === "aurum" ? "text-[var(--pearl-muted)]" : "text-muted-foreground"}`}>Nothing yet.</p>
             )}
             {(notifs.data ?? []).map((n) => (
               <button
                 key={n.id}
                 onClick={() => openNotification(n)}
-                className={`flex w-full items-start gap-3 border-b border-border/40 px-4 py-3 text-left last:border-b-0 hover:bg-accent ${n.read_at ? "" : "bg-primary/5"}`}
+                className={`flex w-full items-start gap-3 border-b px-4 py-3 text-left last:border-b-0 ${
+                  variant === "aurum"
+                    ? `border-[var(--pearl-border)] hover:bg-[var(--pearl-hover)] ${n.read_at ? "" : "bg-[var(--pearl-accent-soft)]/40"}`
+                    : `border-border/40 hover:bg-accent ${n.read_at ? "" : "bg-primary/5"}`
+                }`}
               >
-                <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground">
+                <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full ${variant === "aurum" ? "bg-[var(--pearl-accent-soft)] text-[var(--pearl-text)]" : "bg-muted text-muted-foreground"}`}>
                   {n.kind === "message" ? <MessageCircle className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline justify-between gap-2">
-                    <span className={`line-clamp-1 text-sm ${n.read_at ? "" : "font-semibold"}`}>{n.title}</span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo(n.created_at)}</span>
+                    <span className={`line-clamp-1 text-sm ${variant === "aurum" ? "text-[var(--pearl-text)]" : ""} ${n.read_at ? "" : "font-semibold"}`}>{n.title}</span>
+                    <span className={`shrink-0 text-[10px] ${variant === "aurum" ? "text-[var(--pearl-muted)]" : "text-muted-foreground"}`}>{timeAgo(n.created_at)}</span>
                   </span>
-                  {n.body && <span className="line-clamp-2 block text-xs text-muted-foreground">{n.body}</span>}
+                  {n.body && <span className={`line-clamp-2 block text-xs ${variant === "aurum" ? "text-[var(--pearl-muted)]" : "text-muted-foreground"}`}>{n.body}</span>}
                   {n.kind === "order" && typeof n.payload?.wa_link === "string" && (
                     <a
                       href={n.payload.wa_link}
@@ -188,7 +207,7 @@ export function NotificationBell() {
                     </a>
                   )}
                 </span>
-                {!n.read_at && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" />}
+                {!n.read_at && <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${variant === "aurum" ? "bg-[var(--pearl-accent)]" : "bg-primary"}`} />}
               </button>
             ))}
           </div>

@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Bike, ChevronRight, Gem, Heart, LogOut, MessageCircle, Package, Sparkles, Store as StoreIcon, User } from "lucide-react";
+import { Bike, Check, ChevronRight, Gem, Heart, LogOut, MessageCircle, Package, ShoppingBag, Sparkles, Store as StoreIcon, User, Users } from "lucide-react";
 import { AppShell, SiteFooter } from "@/components/AppShell";
 import { useSession } from "@/lib/session";
 import { supabase } from "@/integrations/supabase/client";
@@ -81,6 +81,14 @@ function AccountPage() {
     { to: "/chat", icon: MessageCircle, label: "Chats", hint: "Conversations" },
   ];
 
+  // Switch-user modes — buyer is everyone's home turf; seller/affiliate hop
+  // into their surfaces, which onboard on first visit.
+  const modes = [
+    { to: "/", icon: ShoppingBag, title: "Buyer", hint: "Shop the marketplace", unlocked: true },
+    { to: "/dashboard", icon: StoreIcon, title: "Seller", hint: "Your storefront & orders", unlocked: isSeller },
+    { to: "/dashboard/affiliate", icon: Users, title: "Affiliate", hint: "Earn from referrals", unlocked: (roles.data ?? []).includes("affiliate") },
+  ];
+
   return (
     <AppShell>
       <div className="mx-auto max-w-2xl px-4 pt-6 md:max-w-3xl md:px-8 md:pt-10">
@@ -121,6 +129,38 @@ function AccountPage() {
                 ))}
               </div>
             )}
+
+            {/* ── Switch user — one account, three hats. Buyer shops, Seller
+                runs the storefront, Affiliate earns from referrals. Roles
+                you already hold wear a check; the rest are one tap away
+                (each surface handles its own onboarding). ── */}
+            <p className="mb-3 mt-8 flex items-center gap-2.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+              <span className="h-px w-5 bg-gold/60" /> Switch user
+            </p>
+            <div className="grid gap-2.5">
+              {modes.map((m) => (
+                <Link
+                  key={m.title}
+                  to={m.to}
+                  className="group flex items-center gap-3 rounded-2xl border border-border bg-card p-3 transition-colors hover:border-gold/50 hover:bg-accent"
+                >
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gold/12 text-gold">
+                    <m.icon className="h-4.5 w-4.5" strokeWidth={1.8} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium leading-tight">{m.title}</p>
+                    <p className="text-xs text-muted-foreground">{m.hint}</p>
+                  </div>
+                  {m.unlocked ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-gold">
+                      <Check className="h-3 w-3" /> Unlocked
+                    </span>
+                  ) : (
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                  )}
+                </Link>
+              ))}
+            </div>
 
             {/* ── Quick access tiles ── */}
             <p className="mb-3 mt-8 flex items-center gap-2.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">

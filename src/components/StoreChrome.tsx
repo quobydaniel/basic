@@ -9,6 +9,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Check, ChevronRight, Loader2, Lock, MapPin, Send, Share2, ShoppingBag, Sparkles, Store as StoreIcon, X } from "lucide-react";
 import { buyerAssistant, placeAssistantOrder } from "@/lib/ai.functions";
+import { characterById } from "@/lib/ai-characters";
+import { StoreCharacter } from "@/components/StoreCharacter";
 import { formatGHS } from "@/lib/format";
 import { toast } from "sonner";
 
@@ -18,6 +20,8 @@ export type StoreLite = {
   logo_url: string | null;
   theme?: { accent?: string } | null;
   plan?: string | null;
+  ai_character?: string | null;
+  ai_greeting?: string | null;
 };
 
 /** Logo with initials fallback — broken/missing images never leave a hole. */
@@ -174,19 +178,37 @@ export function StoreAssistant({ store, product }: { store: StoreLite; product?:
   }
 
   const accent = "var(--store-accent, var(--gold))";
+  // AI shopkeeper character (Pro): replaces the generic sparkle with the
+  // seller's chosen tiny character in the launcher and panel.
+  const character = isPro ? characterById(store.ai_character) : null;
 
   return (
     <>
-      {/* Floating assistant */}
-      <button
-        onClick={() => setOpen((v) => !v)}
-        aria-label={open ? "Close store assistant" : `Ask ${store.name}'s assistant`}
-        className={`fixed bottom-5 right-4 z-50 flex h-14 items-center gap-2 rounded-full px-4 text-sm font-bold shadow-[0_14px_40px_-10px_oklch(0_0_0/0.6)] transition-transform hover:scale-105 active:scale-95 md:right-6 ${isPro ? "text-black" : "text-white"}`}
-        style={{ background: isPro ? accent : "oklch(0.35 0.01 260)" }}
-      >
-        {isPro ? <Sparkles className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
-        <span className="hidden sm:inline">{isPro ? "Ask us" : "Store AI"}</span>
-      </button>
+      {/* Floating assistant — Pro stores with a picked character get the
+          animated 3D chibi; everyone else gets the pill. */}
+      {isPro && character ? (
+        <StoreCharacter
+          characterId={character.id}
+          characterName={character.name}
+          greeting={store.ai_greeting ?? null}
+          open={open}
+          onActivate={() => setOpen((v) => !v)}
+        />
+      ) : (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-label={open ? "Close store assistant" : `Ask ${store.name}'s assistant`}
+          className={`fixed bottom-5 right-4 z-50 flex h-14 items-center gap-2 rounded-full px-4 text-sm font-bold shadow-[0_14px_40px_-10px_oklch(0_0_0/0.6)] transition-transform hover:scale-105 active:scale-95 md:right-6 ${isPro ? "text-black" : "text-white"}`}
+          style={{ background: isPro ? accent : "oklch(0.35 0.01 260)" }}
+        >
+          {isPro ? (
+            <Sparkles className="h-5 w-5" />
+          ) : (
+            <Lock className="h-5 w-5" />
+          )}
+          <span className="hidden sm:inline">{isPro ? "Ask us" : "Store AI"}</span>
+        </button>
+      )}
 
       {/* Panel */}
       {open && (
@@ -198,10 +220,10 @@ export function StoreAssistant({ store, product }: { store: StoreLite; product?:
         >
           <div className="flex items-center gap-3 border-b border-border/70 px-4 py-3">
             <div className="grid h-9 w-9 place-items-center rounded-full text-black" style={{ background: accent }}>
-              <Sparkles className="h-4 w-4" />
+              {character ? <span aria-hidden className="text-xl leading-none">{character.emoji}</span> : <Sparkles className="h-4 w-4" />}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate font-display text-base leading-tight">{store.name} AI</p>
+              <p className="truncate font-display text-base leading-tight">{character ? `${character.name} · ${store.name} AI` : `${store.name} AI`}</p>
               <p className="text-[11px] text-muted-foreground">{isPro ? "Takes orders for the seller · answers instantly" : "Pro feature"}</p>
             </div>
             <button onClick={() => setOpen(false)} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-full text-muted-foreground hover:bg-accent">

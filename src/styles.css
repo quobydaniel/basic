@@ -1,5 +1,9 @@
 @import "tailwindcss" source(none);
 @source "../src";
+/* One-shot character action classes are built from template literals
+   (storechar-${action}) in StoreCharacter.tsx, so the scanner can never see
+   them as literals — safelist every action utility explicitly. */
+@source inline("storechar-wave storechar-hop storechar-shimmy storechar-spin storechar-nod storechar-chop storechar-flap storechar-pounce storechar-turn storechar-stretch storechar-run storechar-flip storechar-dance storechar-cartwheel storechar-jump storechar-wiggle storechar-moonwalk storechar-cheer storechar-runleg-l storechar-runleg-r");
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
@@ -98,9 +102,11 @@
   --input: oklch(0.72 0.08 130 / 16%);
   --ring: oklch(0.84 0.16 125);
 
-  /* The accent token everything binds to — lemon green. */
-  --gold: oklch(0.84 0.16 125);
-  --gold-foreground: oklch(0.17 0.03 140);
+  /* The accent token everything binds to — warm gold (aligned with --gild;
+     was lime, identical to --primary, so every gold chip/button rendered
+     lemon. Lime remains --primary only. 2026-11-17). */
+  --gold: oklch(0.80 0.11 85);
+  --gold-foreground: oklch(0.17 0.02 150);
   /* `gild` — reserved champagne metal for premium surfaces. */
   --gild: oklch(0.80 0.11 85);
   --gild-foreground: oklch(0.17 0.02 150);
@@ -114,42 +120,45 @@
   --chart-5: oklch(0.58 0.06 150);
 }
 
-/* ── Light mode — "Ivory & Champagne". Same house, daylight hours. ──
-   Warm ivory paper, espresso ink, gold deepened to bronze so it keeps
-   its weight against a light surface. Toggled by adding `.light` to
-   <html> (see ThemeToggle + the pre-paint script in __root). */
+/* ── Light mode — "Lemon Cream & Champagne". Same house, daylight hours. ──
+   Lemon-tinted paper, espresso ink, action green deepened to leaf so it
+   keeps its weight on a light surface; gold deepens to bronze. Toggled by
+   adding `.light` to <html> (see ThemeToggle + the pre-paint script in
+   __root). */
 .light {
-  --background: oklch(0.965 0.012 85);        /* ivory paper */
-  --cream: oklch(0.965 0.012 85);
-  --foreground: oklch(0.24 0.025 50);         /* espresso */
+  --background: oklch(0.972 0.018 110);       /* lemon-cream paper */
+  --cream: oklch(0.972 0.018 110);
+  --foreground: oklch(0.25 0.03 140);         /* deep leaf espresso */
 
-  --card: oklch(0.99 0.005 85);
-  --card-foreground: oklch(0.24 0.025 50);
-  --popover: oklch(0.99 0.005 85);
-  --popover-foreground: oklch(0.24 0.025 50);
+  --card: oklch(0.99 0.008 110);
+  --card-foreground: oklch(0.25 0.03 140);
+  --popover: oklch(0.99 0.008 110);
+  --popover-foreground: oklch(0.25 0.03 140);
 
-  --primary: oklch(0.62 0.11 80);             /* deep champagne */
-  --primary-foreground: oklch(0.98 0.01 85);
+  --primary: oklch(0.56 0.13 140);            /* deep leaf green */
+  --primary-foreground: oklch(0.98 0.01 110);
 
-  --secondary: oklch(0.93 0.02 85);
-  --secondary-foreground: oklch(0.26 0.03 50);
+  --secondary: oklch(0.93 0.025 115);
+  --secondary-foreground: oklch(0.27 0.04 140);
 
-  --muted: oklch(0.93 0.015 85);
-  --muted-foreground: oklch(0.47 0.03 60);
+  --muted: oklch(0.93 0.02 115);
+  --muted-foreground: oklch(0.47 0.03 140);
 
-  --accent: oklch(0.91 0.03 85);
-  --accent-foreground: oklch(0.26 0.03 50);
+  --accent: oklch(0.91 0.035 115);
+  --accent-foreground: oklch(0.27 0.04 140);
 
   --destructive: oklch(0.55 0.19 25);
   --destructive-foreground: oklch(0.98 0 0);
 
-  --border: oklch(0.85 0.025 80);
-  --input: oklch(0.85 0.025 80);
-  --ring: oklch(0.62 0.11 80);
+  --border: oklch(0.86 0.03 120);
+  --input: oklch(0.86 0.03 120);
+  --ring: oklch(0.56 0.13 140);
 
-  --gold: oklch(0.62 0.11 80);                /* bronze on ivory */
-  --gold-foreground: oklch(0.98 0.01 85);
-  --terracotta: oklch(0.55 0.14 40);
+  --gold: oklch(0.56 0.13 140);               /* leaf green on cream */
+  --gold-foreground: oklch(0.98 0.01 110);
+  --gild: oklch(0.62 0.11 80);                /* bronze on ivory */
+  --gild-foreground: oklch(0.98 0.01 85);
+  --terracotta: oklch(0.58 0.11 80);
   --sage: oklch(0.55 0.08 150);
 
   --shadow-soft: 0 1px 2px oklch(0.30 0.04 60 / 0.08), 0 12px 32px oklch(0.30 0.04 60 / 0.10);
@@ -169,7 +178,7 @@
     font-weight: 500;
     letter-spacing: 0.005em;
   }
-  ::selection { background: oklch(0.80 0.11 85 / 0.30); }
+  ::selection { background: oklch(0.84 0.16 125 / 0.30); }
 }
 
 @utility no-scrollbar {
@@ -177,7 +186,8 @@
   &::-webkit-scrollbar { display: none; }
 }
 
-/* Gold rule that draws itself in on hover. */
+/* Gold rule that draws itself in on hover — premium chrome, so it stays
+   champagne (gild) even in the lemon era. */
 @utility gold-rule {
   position: relative;
   &::after {
@@ -186,7 +196,7 @@
     left: 50%; bottom: -6px;
     height: 1px; width: 100%;
     transform: translateX(-50%) scaleX(0);
-    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    background: linear-gradient(90deg, transparent, var(--gild), transparent);
     transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
   }
   &:hover::after, &[data-active="true"]::after { transform: translateX(-50%) scaleX(1); }
@@ -209,16 +219,309 @@
     filter 0.9s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Gold shimmer text. */
+/* Gold shimmer text — champagne metal (gild), not the lemon accent. */
 @keyframes obsidian-shimmer {
   0% { background-position: -200% 50%; }
   100% { background-position: 200% 50%; }
 }
 @utility gold-text {
-  background: linear-gradient(100deg, var(--gold) 30%, oklch(0.95 0.06 90) 50%, var(--gold) 70%);
+  background: linear-gradient(100deg, var(--gild) 30%, oklch(0.95 0.07 90) 50%, var(--gild) 70%);
   background-size: 200% auto;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   animation: obsidian-shimmer 6s linear infinite;
+}
+
+/* Store AI shopkeeper — a tiny chibi that bobs, blinks and waves on the
+   storefront (Pro). All parts animate on CSS transforms so the SVG can
+   stay static markup. */
+@keyframes storechar-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+@keyframes storechar-shadow {
+  0%, 100% { transform: scale(1); opacity: 0.4; }
+  50% { transform: scale(0.88); opacity: 0.26; }
+}
+@keyframes storechar-wave {
+  0%, 34%, 100% { transform: rotate(0deg); }
+  8% { transform: rotate(-34deg); }
+  14% { transform: rotate(-6deg); }
+  20% { transform: rotate(-34deg); }
+  27% { transform: rotate(-10deg); }
+}
+@keyframes storechar-blink {
+  0%, 90%, 100% { transform: scaleY(1); }
+  93%, 96% { transform: scaleY(0.08); }
+}
+@keyframes storechar-tail {
+  0%, 100% { transform: rotate(-8deg); }
+  50% { transform: rotate(16deg); }
+}
+@keyframes storechar-glow {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+@keyframes storechar-pop {
+  from { transform: translateY(6px) scale(0.92); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+@utility storechar-bob { animation: storechar-bob 3.2s ease-in-out infinite; }
+@utility storechar-shadow { animation: storechar-shadow 3.2s ease-in-out infinite; transform-origin: 60px 113px; }
+@utility storechar-wave { animation: storechar-wave 1.4s ease-in-out; transform-box: view-box; transform-origin: 86px 64px; }
+@utility storechar-blink { animation: storechar-blink 4.2s ease-in-out infinite; }
+@utility storechar-tail { animation: storechar-tail 2.6s ease-in-out infinite; }
+@utility storechar-glow { animation: storechar-glow 1.8s ease-in-out infinite; }
+@utility storechar-pop { animation: storechar-pop 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* One-shot personality actions — the scheduler adds the class, then removes
+   it after the action's duration. */
+@keyframes storechar-hop {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  20% { transform: translateY(0) scale(1.06, 0.92); }
+  55% { transform: translateY(-14px) scale(0.96, 1.06); }
+  82% { transform: translateY(0) scale(1.05, 0.94); }
+}
+@keyframes storechar-shimmy {
+  0%, 100% { transform: rotate(0) translateX(0); }
+  25% { transform: rotate(-4deg) translateX(-2px); }
+  75% { transform: rotate(4deg) translateX(2px); }
+}
+@keyframes storechar-spin {
+  from { transform: rotateY(0); }
+  to { transform: rotateY(360deg); }
+}
+@keyframes storechar-nod {
+  0%, 100% { transform: rotate(0); }
+  30% { transform: rotate(7deg) translateY(2px); }
+  65% { transform: rotate(-3deg); }
+}
+@keyframes storechar-chop {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(-32deg); }
+  50% { transform: rotate(-6deg); }
+  75% { transform: rotate(-32deg); }
+}
+@keyframes storechar-flap {
+  0%, 100% { transform: rotate(0); }
+  30% { transform: rotate(-52deg); }
+  65% { transform: rotate(18deg); }
+}
+@keyframes storechar-pounce {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  35% { transform: translateY(-4px) rotate(-7deg); }
+  70% { transform: translateY(-16px) rotate(7deg); }
+}
+@keyframes storechar-turn {
+  0%, 100% { transform: rotate(0); }
+  40%, 72% { transform: rotate(46deg); }
+}
+@keyframes storechar-stretch {
+  0%, 100% { transform: scale(1, 1); }
+  40% { transform: scale(0.95, 1.08); }
+  70% { transform: scale(1.04, 0.96); }
+}
+/* Big movement set — the shopkeeper can run, flip, dance and cartwheel. */
+@keyframes storechar-run {
+  0% { transform: translateY(0) rotate(0); }
+  10% { transform: translateY(-1px) rotate(8deg); }
+  20% { transform: translateY(-4px) rotate(8deg); }
+  30% { transform: translateY(-1px) rotate(8deg); }
+  40% { transform: translateY(-4px) rotate(8deg); }
+  50% { transform: translateY(-1px) rotate(8deg); }
+  60% { transform: translateY(-4px) rotate(8deg); }
+  70% { transform: translateY(-1px) rotate(8deg); }
+  80% { transform: translateY(-4px) rotate(8deg); }
+  90% { transform: translateY(-1px) rotate(8deg); }
+  100% { transform: translateY(0) rotate(0); }
+}
+/* Legs pump in opposite phases while the body leans (run). */
+@keyframes storechar-runleg-l {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(-32deg); }
+  50% { transform: rotate(4deg); }
+  75% { transform: rotate(22deg); }
+}
+@keyframes storechar-runleg-r {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(22deg); }
+  50% { transform: rotate(4deg); }
+  75% { transform: rotate(-32deg); }
+}
+@keyframes storechar-flip {
+  0% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-26px) rotate(180deg); }
+  100% { transform: translateY(0) rotate(360deg); }
+}
+@keyframes storechar-dance {
+  0%, 100% { transform: translateY(0) rotate(0deg) scale(1, 1); }
+  12% { transform: translateY(-4px) rotate(-9deg) scale(1.03, 0.97); }
+  25% { transform: translateY(0) rotate(0deg) scale(1.05, 0.95); }
+  37% { transform: translateY(-4px) rotate(9deg) scale(1.03, 0.97); }
+  50% { transform: translateY(0) rotate(0deg) scale(1.05, 0.95); }
+  62% { transform: translateY(-4px) rotate(-9deg) scale(1.03, 0.97); }
+  75% { transform: translateY(0) rotate(0deg) scale(1.05, 0.95); }
+  87% { transform: translateY(-4px) rotate(9deg) scale(1.03, 0.97); }
+}
+@keyframes storechar-cartwheel {
+  0% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(180deg); }
+  100% { transform: translateY(0) rotate(360deg); }
+}
+/* Second movement wave — jump, wiggle, moonwalk, cheer. */
+@keyframes storechar-jump {
+  0% { transform: translateY(0) scale(1, 1); }
+  18% { transform: translateY(3px) scale(1.1, 0.88); }
+  50% { transform: translateY(-30px) scale(0.94, 1.06); }
+  82% { transform: translateY(2px) scale(1.12, 0.86); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes storechar-wiggle {
+  0%, 100% { transform: rotate(0); }
+  12% { transform: rotate(-6deg); }
+  25% { transform: rotate(6deg); }
+  37% { transform: rotate(-6deg); }
+  50% { transform: rotate(6deg); }
+  62% { transform: rotate(-6deg); }
+  75% { transform: rotate(6deg); }
+  87% { transform: rotate(-6deg); }
+}
+@keyframes storechar-moonwalk {
+  0% { transform: translateX(0) rotate(0deg); }
+  22% { transform: translateX(16px) rotate(-6deg); }
+  48% { transform: translateX(16px) rotate(-6deg); }
+  74% { transform: translateX(0) rotate(0deg); }
+}
+@keyframes storechar-cheer {
+  0%, 100% { transform: rotate(0); }
+  15% { transform: rotate(-140deg); }
+  30% { transform: rotate(-118deg); }
+  45% { transform: rotate(-148deg); }
+  60% { transform: rotate(-120deg); }
+  75% { transform: rotate(-150deg); }
+  90% { transform: rotate(-135deg); }
+}
+@utility storechar-run { animation: storechar-run 1.3s ease-in-out; transform-box: view-box; transform-origin: 60px 96px; }
+@utility storechar-runleg-l { animation: storechar-runleg-l 0.32s linear 4; transform-box: view-box; transform-origin: 52px 88px; }
+@utility storechar-runleg-r { animation: storechar-runleg-r 0.32s linear 4; transform-box: view-box; transform-origin: 68px 88px; }
+@utility storechar-flip { animation: storechar-flip 1.1s cubic-bezier(0.45, 0, 0.55, 1); transform-box: view-box; transform-origin: 60px 72px; }
+@utility storechar-dance { animation: storechar-dance 1.8s ease-in-out; transform-box: view-box; transform-origin: 60px 100px; }
+@utility storechar-cartwheel { animation: storechar-cartwheel 1.2s cubic-bezier(0.4, 0, 0.6, 1); transform-box: view-box; transform-origin: 60px 106px; }
+@utility storechar-jump { animation: storechar-jump 0.95s ease-in-out; transform-box: view-box; transform-origin: 60px 108px; }
+@utility storechar-wiggle { animation: storechar-wiggle 0.9s linear; transform-box: view-box; transform-origin: 60px 104px; }
+@utility storechar-moonwalk { animation: storechar-moonwalk 1.4s ease-in-out; transform-box: view-box; transform-origin: 60px 104px; }
+@utility storechar-cheer { animation: storechar-cheer 1.3s ease-in-out; transform-box: view-box; transform-origin: 86px 64px; }
+@utility storechar-hop { animation: storechar-hop 0.8s cubic-bezier(0.34, 1.56, 0.64, 1); transform-box: view-box; transform-origin: 60px 108px; }
+@utility storechar-shimmy { animation: storechar-shimmy 1.2s ease-in-out; transform-box: view-box; transform-origin: 60px 100px; }
+@utility storechar-spin { animation: storechar-spin 0.95s ease-in-out; transform-box: view-box; transform-origin: 60px 72px; }
+@utility storechar-nod { animation: storechar-nod 1s ease-in-out; transform-box: view-box; transform-origin: 60px 58px; }
+@utility storechar-chop { animation: storechar-chop 1s ease-in-out; transform-box: view-box; transform-origin: 86px 64px; }
+@utility storechar-flap { animation: storechar-flap 1.1s ease-in-out; transform-box: view-box; transform-origin: 86px 64px; }
+@utility storechar-pounce { animation: storechar-pounce 0.8s ease-out; transform-box: view-box; transform-origin: 60px 108px; }
+@utility storechar-turn { animation: storechar-turn 1.6s ease-in-out; transform-box: view-box; transform-origin: 60px 58px; }
+@utility storechar-stretch { animation: storechar-stretch 1.2s ease-in-out; transform-box: view-box; transform-origin: 60px 108px; }
+
+/* Eyes follow the pointer — inline transform from the pointer handler. */
+.storechar-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.18s ease-out;
+  will-change: transform;
+}
+.storechar-head {
+  transform-box: view-box;
+  transform-origin: 60px 58px;
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.storechar-head[data-judge="true"] { transform: rotate(-7deg); }
+@media (prefers-reduced-motion: reduce) {
+  .storechar-bob, .storechar-shadow, .storechar-wave, .storechar-blink,
+  .storechar-tail, .storechar-glow, .storechar-pop,
+  .storechar-hop, .storechar-shimmy, .storechar-spin, .storechar-nod,
+  .storechar-chop, .storechar-flap, .storechar-pounce, .storechar-turn,
+  .storechar-stretch,
+  .storechar-run, .storechar-runleg-l, .storechar-runleg-r,
+  .storechar-flip, .storechar-dance, .storechar-cartwheel,
+  .storechar-jump, .storechar-wiggle, .storechar-moonwalk, .storechar-cheer { animation: none !important; }
+  .storechar-head { transition: none; }
+  .storechar-eyes { transition: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PEARL — warm ivory design tokens (Phase: desktop navigation).
+   Integrated beside the existing theme tokens; scoped to the pearl
+   header/mega-menu surfaces so the rest of the app migrates gradually.
+   ═══════════════════════════════════════════════════════════════════ */
+:root {
+  --pearl-bg: #F7F4EE;
+  --pearl-surface: #FFFFFF;
+  --pearl-glass: rgba(255, 255, 255, 0.76);
+  --pearl-glass-strong: rgba(255, 255, 255, 0.92);
+  --pearl-text: #25241F;
+  --pearl-muted: #858176;
+  --pearl-accent: #C6A36A;
+  --pearl-accent-soft: #EAD9BA;
+  --pearl-border: rgba(174, 151, 112, 0.20);
+  --pearl-border-strong: rgba(174, 151, 112, 0.38);
+  --pearl-hover: rgba(198, 163, 106, 0.10);
+  --pearl-shadow: 0 18px 50px -18px rgba(37, 36, 31, 0.28);
+}
+
+.pearl-glass {
+  background: var(--pearl-glass);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid var(--pearl-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65), var(--pearl-shadow);
+}
+
+.pearl-glass-strong {
+  background: var(--pearl-glass-strong);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid var(--pearl-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), var(--pearl-shadow);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .pearl-glass, .pearl-glass-strong { background: var(--pearl-surface); }
+}
+
+.pearl-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--pearl-border);
+  background: var(--pearl-glass);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+.pearl-icon-btn:hover {
+  border-color: var(--pearl-accent);
+  background: var(--pearl-hover);
+}
+
+/* ── AURUM — dark-glass header utilities (approved nav reference) ── */
+.aurum-capsule {
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.aurum-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+.aurum-icon-btn:hover {
+  border-color: rgba(198, 163, 106, 0.55);
+  background: rgba(255, 255, 255, 0.10);
 }

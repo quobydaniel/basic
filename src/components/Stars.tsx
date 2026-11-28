@@ -16,7 +16,7 @@ export function Stars({
       {[1, 2, 3, 4, 5].map((n) => {
         const star = (
           <Star
-            className={`${dim} ${n <= Math.round(rating) ? "fill-[var(--gold)] text-[var(--gold)]" : "text-muted-foreground/40"}`}
+            className={`${dim} ${n <= Math.round(rating) ? "fill-[var(--gild)] text-[var(--gild)]" : "text-muted-foreground/40"}`}
           />
         );
         return onRate ? (

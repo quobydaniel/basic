@@ -159,8 +159,8 @@ export function FloatingAIAssistant() {
               <Sparkles className="h-4 w-4" />
             </div>
             <div className="min-w-0">
-              <p className="font-display text-base leading-tight">BASIC assistant</p>
-              <p className="text-[11px] text-muted-foreground">Ask about your store, sales, or copy</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] leading-tight">BASIC assistant</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">Ask about your store, sales, or copy</p>
             </div>
             {messages.length > 0 && (
               <button

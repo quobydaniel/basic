@@ -17,12 +17,17 @@ export function ChatShell({ scope, surface = "marketplace" }: { scope: ChatScope
   const inThread = /^\/(dashboard\/chats|sell\/chat|chat)\/.+/.test(pathname);
   const activeId = inThread ? pathname.split("/").pop() : undefined;
 
-  // Marketplace chat owns the full viewport. Dashboard variant sits inside
-  // the seller dashboard's mobile bar + bottom nav (desktop is sidebar-only).
+  // Marketplace chat owns the full viewport — except the buyer inbox, which
+  // now shares the page with the bottom tab bar (subtracted, safe-area
+  // aware). Dashboard variant sits inside the seller dashboard's mobile bar
+  // + bottom nav (desktop is sidebar-only).
+  const isBuyerChatInbox = surface === "marketplace" && pathname === "/chat";
   const height =
     surface === "dashboard"
       ? "h-[calc(100dvh-2.75rem-3.5rem)] md:h-screen"
-      : "h-[100dvh] md:h-screen";
+      : isBuyerChatInbox
+        ? "h-[calc(100dvh-3.75rem-env(safe-area-inset-bottom))] md:h-screen"
+        : "h-[100dvh] md:h-screen";
 
   const content = (
     <div className={`flex flex-col md:grid md:grid-cols-[minmax(320px,380px)_1fr] ${height}`}>

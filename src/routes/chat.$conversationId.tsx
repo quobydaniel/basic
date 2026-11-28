@@ -2,12 +2,16 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, ArrowDown, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone, ClipboardList, Loader2, MoreVertical, RotateCcw, Package, ExternalLink } from "lucide-react";
+import { ArrowLeft, ArrowDown, Send, Sparkles, Image as ImageIcon, CheckCheck, Tag, X, Phone, ClipboardList, Loader2, MoreVertical, RotateCcw, Package, ExternalLink, Check } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
 import { autoPilotReply, autoPilotReplyRemote, summarizeConversation, confirmProposal, createSellerOrder } from "@/lib/ai.functions";
 import { formatGHS } from "@/lib/format";
 import { toast } from "sonner";
+
+// Buyer-side auto-reply dedupe, per conversation — module scope so React
+// StrictMode dev remounts (refs reset) can't double-fire the engine.
+const pilotFired = new Map<string, Set<string>>();
 
 // WhatsApp brand glyph — lucide dropped brand icons, so inline it.
 function WhatsAppIcon({ className }: { className?: string }) {
@@ -111,6 +115,9 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   const [fulfillment, setFulfillment] = useState("meet_in_person");
   const [paymentTerm, setPaymentTerm] = useState("pay_on_delivery");
   const [orderBusy, setOrderBusy] = useState(false);
+  const [showFloorPanel, setShowFloorPanel] = useState(false);
+  const [floorVal, setFloorVal] = useState("");
+  const [floorBusy, setFloorBusy] = useState(false);
   // Optimistic sends: bubble appears instantly, flips to a retry state if
   // the insert fails — no more messages lost to a dead connection.
   const [outbox, setOutbox] = useState<{ id: string; body: string; failed?: boolean }[]>([]);
@@ -129,7 +136,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("conversations" as any)
-        .select("id, buyer_id, seller_id, store_id, product_id, order_id, store:stores(id, name, logo_url, slug, plan, auto_pilot, whatsapp_number), product:products(id, slug, title, base_price, currency, product_media(url))")
+        .select("id, buyer_id, seller_id, store_id, product_id, order_id, ai_price_limit, store:stores(id, name, logo_url, slug, whatsapp_number), product:products(id, slug, title, base_price, currency, product_media(url))")
         .eq("id", conversationId)
         .single();
       if (error) throw error;
@@ -230,7 +237,27 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   }, [lightbox]);
 
   const store: any = convo.data?.store ?? null;
-  const autoPilotOn = !!(user && isSeller && store?.plan === "pro" && store?.auto_pilot);
+
+  // Store plan + auto-pilot flag — fetched SEPARATELY from the conversation
+  // embed so a missing column (pending migration) can't 400 the whole
+  // thread query and take the header/name/logo down with it. Null degrades
+  // to "not Pro / off" — the AI line hides, the page keeps working.
+  const storeMeta = useQuery({
+    queryKey: ["store-meta", convo.data?.store_id],
+    enabled: !!convo.data?.store_id,
+    retry: 0,
+    queryFn: async () => {
+      const { data, error } = await (supabase
+        .from("stores" as any)
+        .select("plan, auto_pilot")
+        .eq("id", convo.data!.store_id)
+        .maybeSingle() as any);
+      if (error) return null;
+      return (data ?? null) as { plan: string; auto_pilot: boolean | null } | null;
+    },
+  });
+  const meta: any = storeMeta.data ?? null;
+  const autoPilotOn = !!(user && isSeller && meta?.plan === "pro" && meta?.auto_pilot && convo.data?.ai_enabled !== false);
 
   // ── Presence: is the other party online right now? ──
   // last_seen_at is heartbeated by every signed-in client (session.ts); a
@@ -243,7 +270,7 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   }, []);
   const otherSeenAt = otherProfile.data?.last_seen_at as string | null | undefined;
   const otherOnline = !!otherSeenAt && Date.now() - new Date(otherSeenAt).getTime() < 90_000;
-  const aiOnDuty = !isSeller && store?.plan === "pro" && store?.auto_pilot === true;
+  const aiOnDuty = !isSeller && meta?.plan === "pro" && meta?.auto_pilot === true && convo.data?.ai_enabled !== false;
 
   // ── SELLER side: auto-pilot runs while the seller watches the thread ──
   // (Offline coverage is the buyer-triggered remote path below.) When
@@ -281,13 +308,16 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   // Fires when the newest message is the buyer's (new sends AND a backlog
   // left unanswered), at most once per message, ~1s in so it feels human.
   const remoteReply = useServerFn(autoPilotReplyRemote);
-  const pilotFiredRef = useRef<Set<string>>(new Set());
+  // Module-scope on purpose: React StrictMode dev remounts reset refs, which
+  // double-fired the engine for one buyer message. The server gate still
+  // dedupes; this just stops the wasted second generation.
+  const fired = pilotFired.get(conversationId) ?? new Set<string>();
   useEffect(() => {
     if (!user || !convo.data || !lastMsg || isSeller) return;
-    if (store?.plan !== "pro" || !store?.auto_pilot) return;
+    if (meta?.plan !== "pro" || !meta?.auto_pilot || convo.data?.ai_enabled === false) return;
     if (lastMsg.sender_id !== user.id) return;
-    if (pilotFiredRef.current.has(lastMsg.id)) return;
-    pilotFiredRef.current.add(lastMsg.id);
+    if (fired.has(lastMsg.id)) return;
+    fired.add(lastMsg.id);
     setAiTyping(true);
     replyAwaitRef.current = lastMsg.id;
     // Fire immediately — the 1s "feels human" delay read as broken lag, and
@@ -302,6 +332,16 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
         qc.invalidateQueries({ queryKey: ["msgs", conversationId] });
       });
   }, [user, convo.data, lastMsg, isSeller, conversationId, remoteReply, qc, meta]);
+
+  // While the typing bubble is up, keep polling for the reply — it can be
+  // delivered by another surface (seller-tab heartbeat, a duplicate run
+  // winning the RPC race) AFTER our own request already returned refused,
+  // and the single invalidation above races that landing.
+  useEffect(() => {
+    if (!aiTyping) return;
+    const iv = setInterval(() => qc.invalidateQueries({ queryKey: ["msgs", conversationId] }), 2500);
+    return () => clearInterval(iv);
+  }, [aiTyping, conversationId, qc]);
 
   // The typing bubble must OUTLIVE the request: the reply message only
   // renders after a refetch round-trip (and a dedupe response can return
@@ -321,20 +361,6 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     replyAwaitRef.current = null;
     setAiTyping(false);
   }, [aiTyping, lastMsg, user]);
-
-  // ── SELLER side: automatic recap on AI deals ──
-  // When the AI proposes an order (system_order proposal card), the recap
-  // panel opens by itself — the seller confirms the deal without hunting
-  // through the ⋮ menu.
-  const recapAutoRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!isSeller || !lastMsg) return;
-    if (lastMsg.kind !== "system_order") return;
-    if ((lastMsg.metadata as Record<string, unknown> | null)?.proposal !== "order") return;
-    if (recapAutoRef.current === lastMsg.id) return;
-    recapAutoRef.current = lastMsg.id;
-    loadRecap();
-  }, [isSeller, lastMsg]);
   // Hard-stops the bubble when the engine is NOT working: while a run is
   // actually in flight the bubble stays (NVIDIA can take 40s + OpenRouter
   // fallback after it); once settled with no reply, give the 2.5s polling
@@ -365,20 +391,74 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
   // Toggle: seller flips the store's auto-pilot from the thread header.
   const pilotBusy = useRef(false);
   async function toggleAutoPilot() {
+    // Per-chat control — pauses/resumes the AI for THIS conversation only.
+    // The store-wide master (Auto-reply AI card) governs new customers.
     if (!user || !convo.data || pilotBusy.current) return;
-    const storeId = store?.id;
-    const next = !store?.auto_pilot;
-    if (!storeId) return;
+    const paused = convo.data.ai_enabled === false;
+    const next = !paused; // paused → resume (true); active → pause (false)
     pilotBusy.current = true;
     try {
-      const { error } = await supabase.from("stores" as any).update({ auto_pilot: next }).eq("id", storeId);
+      const { error } = await (supabase as any)
+        .from("conversations")
+        .update({ ai_enabled: next })
+        .eq("id", conversationId);
       if (error) throw error;
-      toast.success(next ? "AI auto-pilot is ON — it will reply, take orders and alert you." : "AI auto-pilot is OFF — you reply yourself.");
+      toast.success(next ? "AI ON for this chat — auto-pilot answers here." : "AI paused for this chat — you reply yourself.");
       qc.invalidateQueries({ queryKey: ["convo", conversationId] });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not change auto-pilot");
+      const m = e instanceof Error ? e.message : "";
+      toast.error(/ai_enabled|PGRST204|column/i.test(m) ? "One-time setup needed — run apply-pending-2026-11-14g.sql in Supabase." : m || "Could not change auto-pilot");
     } finally {
       pilotBusy.current = false;
+    }
+  }
+
+  // ── AI proposal cards (seller actions) ──
+  // The AI proposes; the seller confirms or declines inline. Confirm (order)
+  // writes the REAL order — only then does it appear in the buyer's Orders.
+  // Confirm (cancel) sets the order status cancelled. Resolution is written
+  // into the proposal message's metadata so the buttons clear for both sides.
+  const proposalBusy = useRef(false);
+  async function resolveProposal(m: any, decision: "confirmed" | "declined") {
+    if (!user || !convo.data || proposalBusy.current) return;
+    const md = (m as any).metadata ?? {};
+    if (md.resolved) return;
+    proposalBusy.current = true;
+    try {
+      // ALL proposal writes are server-side now — place_order (server-priced,
+      // floor-checked, stock-checked) + status matrix + idempotency on the
+      // proposal message id. The browser never creates orders directly.
+      const res: any = await confirmProposalFn({ data: { message_id: m.id, decision } });
+      if (res?.order_number && !res?.duplicate) toast.success(`Order #${res.order_number} confirmed`);
+      else if (decision === "declined") toast.success("Declined");
+      qc.invalidateQueries({ queryKey: ["msgs", conversationId] });
+      qc.invalidateQueries({ queryKey: ["dashboard-orders"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not process the proposal");
+    } finally {
+      proposalBusy.current = false;
+    }
+  }
+
+  // Seller sets the AI's per-chat price floor (overrides the product floor).
+  async function saveFloor() {
+    if (!user || !convo.data || floorBusy) return;
+    setFloorBusy(true);
+    try {
+      const clean = floorVal.replace(/[^0-9.]/g, "");
+      const { error } = await (supabase as any)
+        .from("conversations")
+        .update({ ai_price_limit: clean ? Number(clean) : null })
+        .eq("id", conversationId);
+      if (error) throw error;
+      toast.success(clean ? `AI price floor set — GH₵${Number(clean)} for this chat` : "AI price floor cleared for this chat");
+      setShowFloorPanel(false);
+      qc.invalidateQueries({ queryKey: ["convo", conversationId] });
+    } catch (e) {
+      const m = e instanceof Error ? e.message : "";
+      toast.error(/ai_price_limit|PGRST204|column/i.test(m) ? "One-time setup needed — run apply-pending-2026-11-14g.sql in Supabase." : m || "Could not save");
+    } finally {
+      setFloorBusy(false);
     }
   }
 
@@ -465,27 +545,6 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     }
   }
 
-  // Shared proposal resolver — the AI-proposal card buttons call this; every
-  // write is server-side (place_order, status matrix, resolution cards,
-  // idempotency on the proposal message id).
-  async function resolveProposal(m: any, decision: "confirmed" | "declined") {
-    if (!user || !convo.data || proposalBusy.current) return;
-    const md = (m as any).metadata ?? {};
-    if (md.resolved) return;
-    proposalBusy.current = true;
-    try {
-      const res: any = await confirmProposalFn({ data: { message_id: m.id, decision } });
-      if (res?.order_number && !res?.duplicate) toast.success(`Order #${res.order_number} confirmed`);
-      else if (decision === "declined") toast.success("Declined");
-      qc.invalidateQueries({ queryKey: ["msgs", conversationId] });
-      qc.invalidateQueries({ queryKey: ["dashboard-orders"] });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not process the proposal");
-    } finally {
-      proposalBusy.current = false;
-    }
-  }
-
   // Commit the staged attachment: upload → signed URL → image message.
   async function sendAttachment(file: File) {
     if (!user) return;
@@ -529,12 +588,9 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
     items.push({ type: "msg", m });
   }
 
-  // Buyer icebreakers (Jiji-style) — only while the conversation is fresh.
-  // msgs.isLoading is gated too: while loading, length reads 0 and the chips
-  // would flash on threads that aren't actually fresh.
-  // Chips only while the buyer hasn't spoken yet — counting messages was
-  // wrong: right after the first send the thread has 1 message and the
-  // chips would stick around under the sent bubble.
+  // Buyer icebreakers (Jiji-style) — only while the buyer hasn't spoken yet.
+  // Counting messages was wrong: right after the first send the thread has
+  // 1 message and the chips would stick around under the sent bubble.
   const buyerSpoke = !!(msgs.data ?? []).some((m: { sender_id: string | null }) => m.sender_id === user?.id);
   const showIcebreakers = !isSeller && !msgs.isLoading && !buyerSpoke && !aiTyping;
 
@@ -688,20 +744,22 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
             </a>
           </div>
         )}
-        {/* Seller: AI auto-pilot switch — Pro stores only */}
-        {isSeller && store?.plan === "pro" && (
+        {/* Seller: per-chat AI auto-pilot — pauses/resumes the AI for THIS
+            conversation. The store-wide master (Auto-reply AI card) governs
+            new customers. */}
+        {isSeller && meta?.plan === "pro" && (
           <button
             type="button"
             onClick={toggleAutoPilot}
             className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition-colors ${
-              store?.auto_pilot
-                ? "border-gold/50 bg-gold/10 text-gold"
-                : "border-border text-muted-foreground hover:text-foreground"
+              convo.data?.ai_enabled === false || !meta?.auto_pilot
+                ? "border-border text-muted-foreground hover:text-foreground"
+                : "border-gold/50 bg-gold/10 text-gold"
             }`}
-            title="When ON, the AI replies to buyers, takes orders and alerts you — even while you're away."
+            title="Pause or resume the AI for this chat only — the Auto-reply AI switch governs new customers store-wide."
           >
             <Sparkles className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Auto-pilot</span> {store?.auto_pilot ? "ON" : "OFF"}
+            <span className="hidden sm:inline">Auto-pilot</span> {convo.data?.ai_enabled === false || !meta?.auto_pilot ? "OFF" : "ON"}
           </button>
         )}
         {/* Chat tools — ⋮ for BOTH roles. Sellers get AI recap + create order;
@@ -746,6 +804,18 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
                     className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm hover:bg-accent"
                   >
                     <Tag className="h-4 w-4 shrink-0 text-[var(--gold)]" /> Create order
+                  </button>
+                )}
+                {isSeller && (
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setFloorVal(convo.data?.ai_price_limit ? String(convo.data.ai_price_limit) : "");
+                      setShowFloorPanel(true);
+                    }}
+                    className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm hover:bg-accent"
+                  >
+                    <Tag className="h-4 w-4 shrink-0 text-[var(--gold)]" /> Set AI price floor
                   </button>
                 )}
                 {!isSeller && convo.data?.order_id && (
@@ -829,11 +899,40 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
             const m = it.m;
             const mine = m.sender_id === user?.id;
             if (m.kind === "system_order" || m.kind === "system_delivery") {
+              const md = (m as any).metadata ?? {};
+              // AI proposal cards (order / cancellation) carry inline seller
+              // actions; the buyer sees a waiting state until resolution.
+              const proposal: "order" | "cancel" | null = md.proposal === "cancel" || md.cancel_request ? "cancel" : md.proposal === "order" ? "order" : null;
+              const resolved: string | null = md.resolved ?? null;
               return (
                 <div key={m.id} className="mx-auto my-1 max-w-sm rounded-2xl border border-[var(--gild)]/40 bg-[var(--gild)]/10 px-4 py-2.5 text-center">
                   <p className="text-xs font-medium">{m.body}</p>
                   <p className="mt-0.5 text-[10px] text-muted-foreground">{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
-                  {(m as any).metadata?.order_id && (
+                  {proposal && isSeller && !resolved && (
+                    <div className="mt-2 flex items-center justify-center gap-1.5">
+                      <button
+                        onClick={() => resolveProposal(m, "confirmed")}
+                        className="inline-flex items-center gap-1 rounded-full bg-[var(--gold)] px-3 py-1 text-[11px] font-bold text-[var(--gold-foreground)] hover:opacity-90"
+                      >
+                        <Check className="h-3 w-3" /> {proposal === "cancel" ? "Confirm cancellation" : "Confirm order"}
+                      </button>
+                      <button
+                        onClick={() => resolveProposal(m, "declined")}
+                        className="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1 text-[11px] font-semibold text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  )}
+                  {proposal && !isSeller && !resolved && (
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">Waiting for the seller to confirm…</p>
+                  )}
+                  {proposal && resolved && (
+                    <p className={`mt-1.5 text-[11px] font-semibold ${resolved === "confirmed" ? "text-emerald-500" : "text-muted-foreground"}`}>
+                      {resolved === "confirmed" ? "Confirmed ✓" : "Declined"}
+                    </p>
+                  )}
+                  {!proposal && md.order_id && (
                     <Link
                       to={isSeller ? "/dashboard/orders" : "/orders"}
                       className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[var(--gold)] px-3 py-1 text-[11px] font-bold text-[var(--gold-foreground)] hover:opacity-90"
@@ -1036,6 +1135,44 @@ export function ThreadPage({ conversationId }: { conversationId: string }) {
                   Cancel
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SELLER: AI price floor sheet — the lowest the auto-pilot may agree
+          to in THIS chat. Overrides the product-level floor. */}
+      {showFloorPanel && (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/60" onClick={() => setShowFloorPanel(false)}>
+          <div className="w-full rounded-t-3xl border-t border-border bg-card p-5 pb-8" onClick={(e) => e.stopPropagation()}>
+            <div className="mx-auto max-w-2xl">
+              <p className="font-display text-lg">AI price floor</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                The lowest the auto-pilot may agree to for this chat. Offers below it get declined and held at your floor — the buyer pushes, the AI waits for you. Leave empty to clear.
+              </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void saveFloor();
+                }}
+                className="mt-3 flex items-center gap-2"
+              >
+                <div className="flex flex-1 items-center gap-2 rounded-xl border border-input bg-background px-3 py-2.5">
+                  <span className="text-sm text-muted-foreground">GH₵</span>
+                  <input
+                    value={floorVal}
+                    onChange={(e) => setFloorVal(e.target.value.replace(/[^0-9.]/g, ""))}
+                    inputMode="decimal"
+                    placeholder={convo.data?.ai_price_limit ? String(convo.data.ai_price_limit) : "e.g. 40"}
+                    className="w-full bg-transparent text-sm outline-none"
+                    aria-label="AI price floor in cedis"
+                    autoFocus
+                  />
+                </div>
+                <button type="submit" disabled={floorBusy} className="rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+                  {floorBusy ? "Saving…" : "Save"}
+                </button>
+              </form>
             </div>
           </div>
         </div>

@@ -230,6 +230,7 @@ function ProductEditor({ storeId, productId, plan = "free", onClose, onSaved }: 
   const [parentId, setParentId] = useState<string>("");
   const [specs, setSpecs] = useState<Record<string, string>>({});
   const [compareAt, setCompareAt] = useState("");
+  const [aiMinPrice, setAiMinPrice] = useState("");
   const [swapAvailable, setSwapAvailable] = useState(false);
   const [negotiable, setNegotiable] = useState(false);  const [vRows, setVRows] = useState<{ id?: string; title: string; price: string; qty: string }[]>([]);
   const [optType, setOptType] = useState<string | null>(null);
@@ -300,7 +301,7 @@ function ProductEditor({ storeId, productId, plan = "free", onClose, onSaved }: 
     // Seller terms — optional columns; ignore failure if the migration hasn't run.
     supabase
       .from("products")
-      .select("delivery_available, payment_type, returns_note, attributes, category_id, swap_available, negotiable")
+      .select("delivery_available, payment_type, returns_note, attributes, category_id, swap_available, negotiable, ai_min_price")
       .eq("id", productId)
       .maybeSingle()
       .then(({ data: extra }) => {
@@ -316,6 +317,7 @@ function ProductEditor({ storeId, productId, plan = "free", onClose, onSaved }: 
         setSpecs((e.attributes as Record<string, string>) ?? {});
         setSwapAvailable(!!e.swap_available);
         setNegotiable(!!e.negotiable);
+        setAiMinPrice(e.ai_min_price != null ? String(e.ai_min_price) : "");
       });
   }, [productId]);
 
@@ -459,6 +461,18 @@ function ProductEditor({ storeId, productId, plan = "free", onClose, onSaved }: 
           toast.info("Per-product terms & specs need a quick DB update — run supabase/migrations/20260830120000_product_seller_terms.sql in Supabase.");
         }
       }
+
+      // AI price floor — separate tolerant follow-up too (column lives in
+      // supabase/apply-pending-2026-11-14g.sql). Empty field clears the floor.
+      try {
+        const { error: floorErr } = await (supabase as any)
+          .from("products")
+          .update({ ai_min_price: aiMinPrice ? Number(aiMinPrice) : null })
+          .eq("id", pid!);
+        if (floorErr) {
+          toast.info("AI price floor needs a quick DB update — run supabase/apply-pending-2026-11-14g.sql in Supabase.");
+        }
+      } catch {}
 
       toast.success(productId ? "Product updated" : "Product created");
       onSaved();
@@ -743,6 +757,10 @@ function ProductEditor({ storeId, productId, plan = "free", onClose, onSaved }: 
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-muted-foreground">Stock</span>
               <input value={stock} onChange={(e) => setStock(e.target.value)} type="number" min="0" className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm outline-none focus:border-ring" />
+            </label>
+            <label className="col-span-2 block">
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">AI price floor (GHS) — lowest the auto-pilot may agree to</span>
+              <input value={aiMinPrice} onChange={(e) => setAiMinPrice(e.target.value.replace(/[^0-9.]/g, ""))} type="number" step="0.01" min="0" placeholder="Leave empty for no floor" className="w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm outline-none focus:border-ring" />
             </label>
           </div>
 

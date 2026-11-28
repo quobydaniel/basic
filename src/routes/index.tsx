@@ -1,7 +1,7 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect, useMemo } from "react";
-import { ArrowRight, TrendingUp, Sparkles, Store as StoreIcon, Star } from "lucide-react";
+import { ArrowRight, Search, TrendingUp, Sparkles, Store as StoreIcon, Star } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import { Parallax, Reveal } from "@/components/motion";
@@ -145,6 +145,9 @@ function MarketplaceHome() {
   // Houses with a live story light up golden on their featured card too.
   const storyStores = useStoryStoreIds();
 
+  const [heroQ, setHeroQ] = useState("");
+  const navigate = useNavigate();
+
   return (
     <AppShell>
       {/* Obsidian hero — candlelight parallax over charcoal */}
@@ -165,9 +168,9 @@ function MarketplaceHome() {
           <div className="relative flex flex-col items-center gap-10 px-6 py-8 text-center md:px-12 md:py-20">
             <Parallax speed={0.03} className="max-w-2xl">
               <p className="mb-3 flex items-center justify-center gap-4 text-[10px] font-semibold uppercase tracking-[0.42em] text-muted-foreground md:mb-5">
-                <span className="h-px w-10 bg-gradient-to-r from-transparent to-gold/70" />
+                <span className="h-px w-10 bg-gradient-to-r from-transparent to-gild/70" />
                 Ghana-powered commerce
-                <span className="h-px w-10 bg-gradient-to-l from-transparent to-gold/70" />
+                <span className="h-px w-10 bg-gradient-to-l from-transparent to-gild/70" />
               </p>
               <h1 className="font-display text-4xl leading-[1.08] md:text-7xl md:leading-[1.05]">
                 Selling made simple.
@@ -179,6 +182,32 @@ function MarketplaceHome() {
                 region. Buyers shop thousands of Ghana-made finds — pay with
                 Mobile Money or card, delivered to your door.
               </p>
+              {/* Hero search — the buyer's fastest path, front and center
+                  (the masthead no longer carries a search button). Enter or
+                  the gold button carries the query to /discover. */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  navigate({ to: "/discover", search: heroQ.trim() ? { q: heroQ.trim() } : {} });
+                }}
+                className="mx-auto mt-6 flex w-full max-w-md items-center gap-2.5 rounded-full border border-border bg-background/70 py-1.5 pl-4 pr-1.5 backdrop-blur transition-colors focus-within:border-gold/60 md:mt-8"
+              >
+                <Search className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.8} />
+                <input
+                  value={heroQ}
+                  onChange={(e) => setHeroQ(e.target.value)}
+                  placeholder="Search Ghana-made finds…"
+                  aria-label="Search products"
+                  className="min-w-0 flex-1 bg-transparent py-1.5 text-sm outline-none placeholder:text-muted-foreground"
+                />
+                <button
+                  type="submit"
+                  aria-label="Search"
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gold text-gold-foreground transition-all duration-300 hover:shadow-[0_0_28px_-8px_var(--gold)]"
+                >
+                  <ArrowRight className="h-4 w-4" strokeWidth={2.2} />
+                </button>
+              </form>
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3 md:mt-9 md:gap-4">
                 <Link
                   to="/discover"
@@ -254,7 +283,7 @@ function MarketplaceHome() {
               className="group relative block h-56 w-72 overflow-hidden rounded-3xl border border-border bg-card transition-all duration-500 hover:border-gold/50 hover:shadow-[0_24px_60px_-24px_oklch(0.80_0.11_85/0.35)] md:w-auto"
             >
               {s.plan === "pro" && (
-                <span className="absolute right-3 top-3 z-10 rounded-full bg-gold px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-gold-foreground shadow-md">
+                <span className="absolute right-3 top-3 z-10 rounded-full bg-gild px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-gild-foreground shadow-md">
                   Featured
                 </span>
               )}
@@ -284,7 +313,7 @@ function MarketplaceHome() {
                   <img
                     src={s.logo_url}
                     alt=""
-                    className="h-10 w-10 rounded-full border border-gold/50 object-cover"
+                    className="h-10 w-10 rounded-full border border-gild/50 object-cover"
                   />
                 ))}
                 <div className="min-w-0">
@@ -317,7 +346,7 @@ function MarketplaceHome() {
           />
           <div className="relative flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
             <div className="max-w-md">
-              <p className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.34em] text-gold">
+              <p className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.34em] text-gild">
                 <StoreIcon className="h-3.5 w-3.5" strokeWidth={1.8} /> For makers &amp; houses
               </p>
               <h3 className="font-display text-3xl leading-tight md:text-4xl">
@@ -381,7 +410,7 @@ export function ProductCardTile({ p }: { p: ProductCard }) {
           <FavoriteButton productId={p.id} size="sm" />
         </div>
         {rating.count > 150 && (
-          <span className="absolute left-1.5 top-1.5 rounded-full border border-gold/40 bg-background/85 px-1.5 py-px text-[8px] font-semibold uppercase tracking-[0.12em] text-gold backdrop-blur">
+          <span className="absolute left-1.5 top-1.5 rounded-full border border-gild/40 bg-background/85 px-1.5 py-px text-[8px] font-semibold uppercase tracking-[0.12em] text-gild backdrop-blur">
             Hot
           </span>
         )}
@@ -397,7 +426,7 @@ export function ProductCardTile({ p }: { p: ProductCard }) {
             {(p as any).negotiable ? "Chat for price" : formatGHS(p.base_price, { currency: p.currency })}
           </p>
           <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            <Star className="h-3 w-3 fill-gold text-gold" />
+            <Star className="h-3 w-3 fill-gild text-gild" />
             {rating.avg.toFixed(1)}
             <span className="text-muted-foreground/60">({rating.count})</span>
           </span>
