@@ -1,16 +1,33 @@
 // /s/$storeSlug — the seller's storefront: branded mini-site (own top bar),
 // hero with banner/logo/stats/follow, and tabs — Items, Reviews, About,
 // Policies. The Pro AI shop assistant floats on top of it all.
-import { createFileRoute, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useRef } from "react";
-import { BadgeCheck, Check, ChevronRight, MapPin, MessageCircle, ShieldCheck, Star, Truck, UserPlus } from "lucide-react";
+import {
+  BadgeCheck,
+  Check,
+  ChevronRight,
+  MapPin,
+  MessageCircle,
+  ShieldCheck,
+  Star,
+  Truck,
+  UserPlus,
+  Handshake,
+} from "lucide-react";
 import { toast } from "sonner";
 import { ProductCardTile, protoRating } from "./index";
-import { StoreAssistant, StoreAvatar, StoreLocationCard, StoreTopBar } from "@/components/StoreChrome";
+import {
+  StoreAssistant,
+  StoreAvatar,
+  StoreLocationCard,
+  StoreTopBar,
+} from "@/components/StoreChrome";
 import { ShortsFeed, StoryViewer, useLiveStories, useStoreShorts } from "@/components/Stories";
 import { supabase } from "@/integrations/supabase/client";
 import { useSession } from "@/lib/session";
+import { formatGHS } from "@/lib/format";
 
 export const Route = createFileRoute("/s/$storeSlug/")({
   component: StorefrontPage,
@@ -70,7 +87,9 @@ function StorefrontPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("stores")
-        .select("id, slug, name, tagline, description, logo_url, banner_url, country, currency, status, plan, kyc_verified, area, city, region, created_at, payment_terms, theme, ai_character, ai_greeting")
+        .select(
+          "id, slug, name, tagline, description, logo_url, banner_url, country, currency, status, plan, kyc_verified, area, city, region, created_at, payment_terms, theme, ai_character, ai_greeting",
+        )
         .eq("slug", storeSlug)
         .maybeSingle();
       if (error) throw error;
@@ -123,12 +142,14 @@ function StorefrontPage() {
     queryFn: async () => {
       const { data, error } = await (supabase
         .from("products")
-        .select("id, slug, title, base_price, currency, negotiable, category_id, category:categories(name, slug), store:stores(slug, name, area, city), product_media(url)")
+        .select(
+          "id, slug, title, base_price, currency, negotiable, category_id, category:categories(name, slug), store:stores(slug, name, area, city), product_media(url)",
+        )
         .eq("store_id", store.data!.id)
         .eq("status", "active")
         .order("created_at", { ascending: false }) as any);
       if (error) throw error;
-      return ((data ?? []) as any[]) as ProductRow[];
+      return (data ?? []) as any[] as ProductRow[];
     },
   });
 
@@ -185,20 +206,27 @@ function StorefrontPage() {
       // RLS-hidden from the viewer it returns empty → "Verified buyer".
       const { data, error } = await (supabase
         .from("reviews")
-        .select("id, rating, body, created_at, product_id, buyer_id, products!inner(title, store_id)")
+        .select(
+          "id, rating, body, created_at, product_id, buyer_id, products!inner(title, store_id)",
+        )
         .eq("products.store_id", store.data!.id)
         .eq("approved", true)
         .order("created_at", { ascending: false })
         .limit(30) as any);
       if (error) throw error;
-      const rows = ((data ?? []) as any[]).map((r) => ({ ...r, buyer: null as { full_name: string | null } | null }));
+      const rows = ((data ?? []) as any[]).map((r) => ({
+        ...r,
+        buyer: null as { full_name: string | null } | null,
+      }));
       const ids = [...new Set(rows.map((r) => r.buyer_id).filter(Boolean))] as string[];
       if (ids.length) {
         const { data: profs } = await supabase
           .from("profiles")
           .select("id, full_name")
           .in("id", ids);
-        const names = new Map((profs ?? []).map((p: { id: string; full_name: string | null }) => [p.id, p.full_name]));
+        const names = new Map(
+          (profs ?? []).map((p: { id: string; full_name: string | null }) => [p.id, p.full_name]),
+        );
         for (const r of rows) r.buyer = { full_name: names.get(r.buyer_id) ?? null };
       }
       return rows as ReviewRow[];
@@ -209,11 +237,17 @@ function StorefrontPage() {
     mutationFn: async () => {
       if (!user) throw new Error("Sign in to follow");
       if (following) {
-        const { error } = await (supabase.from("store_followers" as any).delete().eq("store_id", store.data!.id).eq("follower_id", user.id) as any);
+        const { error } = await (supabase
+          .from("store_followers" as any)
+          .delete()
+          .eq("store_id", store.data!.id)
+          .eq("follower_id", user.id) as any);
         if (error) throw error;
         return false;
       }
-      const { error } = await (supabase.from("store_followers" as any).insert({ store_id: store.data!.id, follower_id: user.id }) as any);
+      const { error } = await (supabase
+        .from("store_followers" as any)
+        .insert({ store_id: store.data!.id, follower_id: user.id }) as any);
       if (error) throw error;
       return true;
     },
@@ -233,7 +267,6 @@ function StorefrontPage() {
     );
   }
 
-
   const s = store.data;
   if (!s) throw notFound();
   const accent = (s.theme as any)?.accent ?? "var(--gold)";
@@ -243,18 +276,31 @@ function StorefrontPage() {
   const q2 = q.trim().toLowerCase();
   const filtered = q2 ? all.filter((p) => p.title.toLowerCase().includes(q2)) : all;
   const sorted = [...filtered].sort((a, b) =>
-    sort === "price-asc" ? a.base_price - b.base_price : sort === "price-desc" ? b.base_price - a.base_price : 0
+    sort === "price-asc"
+      ? a.base_price - b.base_price
+      : sort === "price-desc"
+        ? b.base_price - a.base_price
+        : 0,
   );
-  const topRated = [...all].sort((a, b) => protoRating(b.id).avg - protoRating(a.id).avg).filter((p) => protoRating(p.id).count > 0);
+  const topRated = [...all]
+    .sort((a, b) => protoRating(b.id).avg - protoRating(a.id).avg)
+    .filter((p) => protoRating(p.id).count > 0);
   const topItems = (topMode === "rating" ? topRated : [...all]).slice(0, 4);
 
   const reviewRows = reviews.data ?? [];
-  const avg = reviewRows.length ? reviewRows.reduce((s2, r) => s2 + Number(r.rating ?? 0), 0) / reviewRows.length : 0;
+  const avg = reviewRows.length
+    ? reviewRows.reduce((s2, r) => s2 + Number(r.rating ?? 0), 0) / reviewRows.length
+    : 0;
   const followerCount = followers.data?.count ?? 0;
-  const joined = s.created_at ? new Date(s.created_at).toLocaleDateString("en-GB", { month: "long", year: "numeric" }) : null;
+  const joined = s.created_at
+    ? new Date(s.created_at).toLocaleDateString("en-GB", { month: "long", year: "numeric" })
+    : null;
 
   return (
-    <div className="min-h-screen bg-background text-foreground" style={{ "--store-accent": accent } as any}>
+    <div
+      className="min-h-screen bg-background text-foreground"
+      style={{ "--store-accent": accent } as any}
+    >
       <StoreTopBar store={s} shareTitle={s.name} />
 
       {/* Hero */}
@@ -264,7 +310,9 @@ function StorefrontPage() {
             <img
               src={s.banner_url}
               alt=""
-              onError={(e) => { e.currentTarget.style.display = "none"; }}
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
               className="h-full w-full object-cover"
             />
           )}
@@ -279,28 +327,48 @@ function StorefrontPage() {
                 onClick={() => setStoryOpen(true)}
                 aria-label={`Watch ${s.name}'s story`}
                 className="shrink-0 self-start rounded-full p-[3px] transition-transform active:scale-95"
-                style={{ background: storyUnseen ? `conic-gradient(from 210deg, ${accent}, color-mix(in oklab, ${accent}, white 45%) 50%, ${accent})` : "var(--border)" }}
+                style={{
+                  background: storyUnseen
+                    ? `conic-gradient(from 210deg, ${accent}, color-mix(in oklab, ${accent}, white 45%) 50%, ${accent})`
+                    : "var(--border)",
+                }}
               >
-                <StoreAvatar store={s} className="h-24 w-24 rounded-full border-4 border-background object-cover shadow-[var(--shadow-soft)] md:h-28 md:w-28" />
+                <StoreAvatar
+                  store={s}
+                  className="h-24 w-24 rounded-full border-4 border-background object-cover shadow-[var(--shadow-soft)] md:h-28 md:w-28"
+                />
               </button>
             ) : (
-              <StoreAvatar store={s} className="h-24 w-24 rounded-full border-4 border-background object-cover shadow-[var(--shadow-soft)] md:h-28 md:w-28" />
+              <StoreAvatar
+                store={s}
+                className="h-24 w-24 rounded-full border-4 border-background object-cover shadow-[var(--shadow-soft)] md:h-28 md:w-28"
+              />
             )}
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="font-display text-3xl leading-tight">{s.name}</h1>
                 {s.kyc_verified && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-gold px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--gold-foreground)]" title="Identity verified by BASIC (KYC)">
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full bg-gold px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--gold-foreground)]"
+                    title="Identity verified by BASIC (KYC)"
+                  >
                     <BadgeCheck className="h-3 w-3" /> Verified seller
                   </span>
                 )}
                 {s.plan === "pro" && (
-                  <span className="rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black" style={{ background: accent }}>Pro</span>
+                  <span
+                    className="rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-black"
+                    style={{ background: accent }}
+                  >
+                    Pro
+                  </span>
                 )}
               </div>
               {joined && (
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="grid h-3.5 w-3.5 place-items-center rounded-full bg-emerald-500/20 text-emerald-500"><Check className="h-2.5 w-2.5" /></span>
+                  <span className="grid h-3.5 w-3.5 place-items-center rounded-full bg-emerald-500/20 text-emerald-500">
+                    <Check className="h-2.5 w-2.5" />
+                  </span>
                   Started selling on BASIC {joined}
                 </p>
               )}
@@ -326,7 +394,9 @@ function StorefrontPage() {
                 ].map((stat) => (
                   <div key={stat.l} className="px-5 py-2.5 text-center">
                     <p className="font-display text-lg leading-tight">{stat.v}</p>
-                    <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">{stat.l}</p>
+                    <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+                      {stat.l}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -348,20 +418,27 @@ function StorefrontPage() {
       <div className="mx-auto mt-6 max-w-6xl px-4 md:px-8">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border">
           <div className="no-scrollbar flex gap-5 overflow-x-auto">
-            {([
-              ["items", "Items"],
-              ...(shorts.length > 0 ? [["shorts", "Shorts"] as const] : []),
-              ["reviews", reviewRows.length ? `Reviews (${avg.toFixed(1)}★)` : "Reviews"],
-              ["about", "About"],
-              ["policies", "Policies"],
-            ] as const).map(([key, label]) => (
+            {(
+              [
+                ["items", "Items"],
+                ...(shorts.length > 0 ? [["shorts", "Shorts"] as const] : []),
+                ["reviews", reviewRows.length ? `Reviews (${avg.toFixed(1)}★)` : "Reviews"],
+                ["about", "About"],
+                ["policies", "Policies"],
+              ] as const
+            ).map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setTab(key)}
                 className={`relative whitespace-nowrap pb-2.5 text-sm font-medium transition-colors ${tab === key ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
                 {label}
-                {tab === key && <span className="absolute inset-x-0 -bottom-px h-0.5" style={{ background: accent }} />}
+                {tab === key && (
+                  <span
+                    className="absolute inset-x-0 -bottom-px h-0.5"
+                    style={{ background: accent }}
+                  />
+                )}
               </button>
             ))}
           </div>
@@ -383,24 +460,32 @@ function StorefrontPage() {
             <div className="mt-10">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="mr-1 font-display text-2xl">Top items</h2>
-                {([
-                  ["sold", "Best-selling"],
-                  ["rating", "Best-reviewed"],
-                ] as const).map(([mode, label]) => (
+                {(
+                  [
+                    ["sold", "Best-selling"],
+                    ["rating", "Best-reviewed"],
+                  ] as const
+                ).map(([mode, label]) => (
                   <button
                     key={mode}
                     onClick={() => setTopMode(mode)}
                     className={`rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors ${
-                      topMode === mode ? "text-black" : "border-border bg-card text-muted-foreground hover:border-foreground/40"
+                      topMode === mode
+                        ? "text-black"
+                        : "border-border bg-card text-muted-foreground hover:border-foreground/40"
                     }`}
-                    style={topMode === mode ? { background: accent, borderColor: accent } : undefined}
+                    style={
+                      topMode === mode ? { background: accent, borderColor: accent } : undefined
+                    }
                   >
                     {label}
                   </button>
                 ))}
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-5">
-                {topItems.map((p) => <ProductCardTile key={p.id} p={p as any} />)}
+                {topItems.map((p) => (
+                  <ProductCardTile key={p.id} p={p as any} />
+                ))}
               </div>
             </div>
           )}
@@ -423,9 +508,15 @@ function StorefrontPage() {
           <div className="mt-4 grid grid-cols-2 gap-3 pb-16 md:grid-cols-4 md:gap-5">
             {products.isLoading &&
               [0, 1, 2, 3].map((i) => (
-                <div key={i} className="aspect-[4/5] animate-pulse rounded-2xl bg-muted/40" aria-hidden />
+                <div
+                  key={i}
+                  className="aspect-[4/5] animate-pulse rounded-2xl bg-muted/40"
+                  aria-hidden
+                />
               ))}
-            {sorted.map((p) => <ProductCardTile key={p.id} p={p as any} />)}
+            {sorted.map((p) => (
+              <ProductCardTile key={p.id} p={p as any} />
+            ))}
             {!products.isLoading && products.isError && (
               <p className="col-span-full py-12 text-center text-sm text-muted-foreground">
                 Couldn't load this store's items — refresh to retry.
@@ -437,6 +528,11 @@ function StorefrontPage() {
               </p>
             )}
           </div>
+
+          {/* Partner picks — products this seller re-lists through BASIC's
+              affiliate program. Honest sourcing: every card names the
+              original seller and buys from their product page. */}
+          <PartnerPicks storeId={store.data!.id} />
         </div>
       )}
 
@@ -490,7 +586,9 @@ function StorefrontPage() {
       {tab === "reviews" && (
         <div className="mx-auto max-w-3xl px-4 py-6 md:px-8">
           {reviewRows.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">No reviews yet — be the first to review an item.</p>
+            <p className="py-10 text-center text-sm text-muted-foreground">
+              No reviews yet — be the first to review an item.
+            </p>
           ) : (
             <>
               <div className="flex items-center gap-3">
@@ -498,24 +596,34 @@ function StorefrontPage() {
                 <div>
                   <div className="flex gap-0.5">
                     {[1, 2, 3, 4, 5].map((n) => (
-                      <Star key={n} className={`h-4 w-4 ${n <= Math.round(avg) ? "fill-gold text-gold" : "text-muted-foreground/40"}`} />
+                      <Star
+                        key={n}
+                        className={`h-4 w-4 ${n <= Math.round(avg) ? "fill-gold text-gold" : "text-muted-foreground/40"}`}
+                      />
                     ))}
                   </div>
-                  <p className="text-xs text-muted-foreground">{reviewRows.length} review{reviewRows.length === 1 ? "" : "s"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {reviewRows.length} review{reviewRows.length === 1 ? "" : "s"}
+                  </p>
                 </div>
               </div>
               <ul className="mt-6 space-y-4">
                 {reviewRows.map((r) => (
                   <li key={r.id} className="rounded-2xl border border-border bg-card p-4">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="truncate text-sm font-medium">{r.products?.title ?? "Product"}</p>
+                      <p className="truncate text-sm font-medium">
+                        {r.products?.title ?? "Product"}
+                      </p>
                       <span className="flex items-center gap-0.5 text-xs font-semibold text-gold">
                         {r.rating} <Star className="h-3 w-3 fill-gold text-gold" />
                       </span>
                     </div>
-                    {r.body && <p className="mt-1.5 text-sm leading-relaxed text-foreground/85">{r.body}</p>}
+                    {r.body && (
+                      <p className="mt-1.5 text-sm leading-relaxed text-foreground/85">{r.body}</p>
+                    )}
                     <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                      {(r.buyer as any)?.full_name || "Verified buyer"} · {new Date(r.created_at).toLocaleDateString()}
+                      {(r.buyer as any)?.full_name || "Verified buyer"} ·{" "}
+                      {new Date(r.created_at).toLocaleDateString()}
                     </p>
                   </li>
                 ))}
@@ -528,7 +636,8 @@ function StorefrontPage() {
       {tab === "about" && (
         <div className="mx-auto max-w-3xl px-4 py-6 md:px-8">
           <p className="whitespace-pre-line text-[15px] leading-relaxed text-foreground/85">
-            {s.description || `${s.name} is an independent seller on BASIC${s.tagline ? ` — ${s.tagline.toLowerCase()}` : ""}. Message the seller directly to ask about any piece; purchases happen in chat, so every question gets answered before you pay.`}
+            {s.description ||
+              `${s.name} is an independent seller on BASIC${s.tagline ? ` — ${s.tagline.toLowerCase()}` : ""}. Message the seller directly to ask about any piece; purchases happen in chat, so every question gets answered before you pay.`}
           </p>
           <div className="mt-6 space-y-3">
             {(s.area || s.city || s.region) && (
@@ -540,7 +649,9 @@ function StorefrontPage() {
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0" style={{ color: accent }} />
                   <div>
                     <p className="text-sm font-medium">Where to find us</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">Ghana — ask in chat for exact meetup details.</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Ghana — ask in chat for exact meetup details.
+                    </p>
                   </div>
                 </div>
               )}
@@ -548,7 +659,9 @@ function StorefrontPage() {
                 <MessageCircle className="mt-0.5 h-4 w-4 shrink-0" style={{ color: accent }} />
                 <div>
                   <p className="text-sm font-medium">Chat first</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">Every purchase starts as a conversation — ask anything.</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Every purchase starts as a conversation — ask anything.
+                  </p>
                 </div>
               </div>
             </div>
@@ -564,7 +677,8 @@ function StorefrontPage() {
               <div>
                 <p className="text-sm font-medium">Safe buying on BASIC</p>
                 <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                  Agree on price, delivery and payment in chat before you pay. Pay on delivery or via escrow where the seller offers it.
+                  Agree on price, delivery and payment in chat before you pay. Pay on delivery or
+                  via escrow where the seller offers it.
                 </p>
               </div>
             </div>
@@ -573,7 +687,8 @@ function StorefrontPage() {
               <div>
                 <p className="text-sm font-medium">Delivery</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Each listing shows the seller's delivery terms — meet-up, pickup or home delivery across Ghana.
+                  Each listing shows the seller's delivery terms — meet-up, pickup or home delivery
+                  across Ghana.
                 </p>
               </div>
             </div>
@@ -582,7 +697,8 @@ function StorefrontPage() {
               <div>
                 <p className="text-sm font-medium">Returns</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Return terms are on every listing. Anything unclear — ask in chat before you order.
+                  Return terms are on every listing. Anything unclear — ask in chat before you
+                  order.
                 </p>
               </div>
             </div>
@@ -590,14 +706,118 @@ function StorefrontPage() {
         </div>
       )}
 
-      <StoreAssistant store={{ name: s.name, slug: s.slug, logo_url: s.logo_url, theme: s.theme, plan: s.plan, ai_character: (s as any).ai_character ?? null, ai_greeting: (s as any).ai_greeting ?? null }} />
+      <StoreAssistant
+        store={{
+          name: s.name,
+          slug: s.slug,
+          logo_url: s.logo_url,
+          theme: s.theme,
+          plan: s.plan,
+          ai_character: (s as any).ai_character ?? null,
+          ai_greeting: (s as any).ai_greeting ?? null,
+        }}
+      />
       {storyOpen && liveStories.length > 0 && (
-        <StoryViewer stories={liveStories} storeSlug={s.slug} storeName={s.name} logoUrl={s.logo_url} accent={accent} onClose={() => setStoryOpen(false)} />
+        <StoryViewer
+          stories={liveStories}
+          storeSlug={s.slug}
+          storeName={s.name}
+          logoUrl={s.logo_url}
+          accent={accent}
+          onClose={() => setStoryOpen(false)}
+        />
       )}
       {shortsOpen && shorts.length > 0 && (
-        <ShortsFeed shorts={shorts} startIndex={shortIdx} storeSlug={s.slug} storeName={s.name} logoUrl={s.logo_url} accent={accent} onClose={() => setShortsOpen(false)} />
+        <ShortsFeed
+          shorts={shorts}
+          startIndex={shortIdx}
+          storeSlug={s.slug}
+          storeName={s.name}
+          logoUrl={s.logo_url}
+          accent={accent}
+          onClose={() => setShortsOpen(false)}
+        />
       )}
       <div className="h-20" />
     </div>
+  );
+}
+
+/* Partner picks — the store's active affiliate re-listings, sourced honestly:
+   each card credits the original seller and links to THEIR product page, so
+   the purchase (and the commission conversation) happens on the real listing.
+   No click-tracking table exists yet; the frontend claims nothing it can't
+   measure. */
+function PartnerPicks({ storeId }: { storeId: string }) {
+  const picks = useQuery({
+    queryKey: ["store-partner-picks", storeId],
+    retry: false,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("affiliate_listings")
+        .select(
+          "id, custom_title, commission_pct, source_product:products(id, slug, title, base_price, currency, product_media(url), store:stores(slug, name))",
+        )
+        .eq("store_id", storeId)
+        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(8);
+      if (error) throw error;
+      return ((data ?? []) as any[]).filter(
+        (r) => r.source_product?.slug && r.source_product?.store?.slug,
+      );
+    },
+  });
+
+  const rows = picks.data ?? [];
+  if (rows.length === 0) return null;
+
+  return (
+    <section className="mt-10">
+      <div className="flex items-center gap-2">
+        <Handshake className="h-4 w-4 text-gold" />
+        <h2 className="font-display text-2xl">Partner picks</h2>
+        <span className="rounded-full border border-border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          With {rows.length} partner product{rows.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <div className="no-scrollbar mt-4 flex gap-3 overflow-x-auto pb-2 md:grid md:grid-cols-4 md:overflow-visible">
+        {rows.map((r) => {
+          const p = r.source_product;
+          return (
+            <Link
+              key={r.id}
+              to="/s/$storeSlug/p/$productSlug"
+              params={{ storeSlug: p.store.slug, productSlug: p.slug }}
+              className="group block w-44 shrink-0 md:w-auto"
+            >
+              <div className="relative aspect-[4/5] overflow-hidden rounded-xl border border-border bg-muted">
+                {p.product_media?.[0]?.url && (
+                  <img
+                    src={p.product_media[0].url}
+                    alt={r.custom_title ?? p.title}
+                    loading="lazy"
+                    className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                  />
+                )}
+                <span className="absolute left-1.5 top-1.5 rounded-full bg-background/85 px-2 py-px text-[9px] font-semibold uppercase tracking-[0.12em] text-muted-foreground backdrop-blur">
+                  Partner pick
+                </span>
+              </div>
+              <div className="mt-2.5">
+                <p className="line-clamp-1 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                  from {p.store.name}
+                </p>
+                <p className="line-clamp-1 font-display text-[16px]">{r.custom_title ?? p.title}</p>
+                <p className="mt-0.5 text-[13px] font-bold text-gold">
+                  {formatGHS(p.base_price, { currency: p.currency })}
+                </p>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
   );
 }

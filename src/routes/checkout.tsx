@@ -17,7 +17,7 @@ import { AppShell } from "@/components/AppShell";
 import { useCart, setQty, removeFromCart, cartTotal, type CartItem } from "@/lib/cart";
 import { useSession } from "@/lib/session";
 import { formatGHS } from "@/lib/format";
-import { supabase } from "@/integrations/supabase/client";
+import { placeOrder } from "@/services/orders";
 import { paymentLabel } from "@/routes/cart";
 
 export const Route = createFileRoute("/checkout")({
@@ -119,23 +119,20 @@ function CheckoutPage() {
     for (const item of items) {
       const choice = choices[item.key] ?? { delivery: false, payment: item.payment_type };
       try {
-        // place_order ships in the pending order-hardening SQL — until the
-        // generated types regen, the RPC rides the documented `as any` cast
-        // pattern (BACKEND-CONTRACT §8).
-        const { data, error } = await (supabase as any).rpc("place_order", {
-          p_store_id: item.store_id,
-          p_product_id: item.product_id,
-          p_quantity: item.qty,
-          p_unit_price: item.unit_price,
-          p_variant_title: item.variant_title,
-          p_delivery: choice.delivery ? deliveryText() : null,
-          p_payment: choice.payment,
-          p_notes: notes.trim() || null,
-          p_source: "cart",
-          p_idempotency_key: attemptKeys[item.key],
+        // Server-authoritative: price floor, stock and idempotency are
+        // enforced inside place_order — the client cannot invent a price.
+        const res = await placeOrder({
+          store_id: item.store_id,
+          product_id: item.product_id,
+          quantity: item.qty,
+          unit_price: item.unit_price,
+          variant_title: item.variant_title,
+          delivery: choice.delivery ? deliveryText() : null,
+          payment: choice.payment,
+          notes: notes.trim() || null,
+          source: "cart",
+          idempotency_key: attemptKeys[item.key],
         });
-        if (error) throw error;
-        const res = (data ?? {}) as { order_number?: string; total?: number; duplicate?: boolean };
         out.push({
           item,
           ok: true,
@@ -182,7 +179,10 @@ function CheckoutPage() {
             {ok.length > 0 && (
               <ul className="mt-6 space-y-2 text-left">
                 {ok.map((r) => (
-                  <li key={r.item.key} className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3">
+                  <li
+                    key={r.item.key}
+                    className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3"
+                  >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold">Order {r.orderNumber}</p>
                       <p className="truncate text-[12px] text-muted-foreground">
@@ -190,7 +190,9 @@ function CheckoutPage() {
                       </p>
                     </div>
                     <p className="ml-3 shrink-0 text-sm font-bold text-gold">
-                      {formatGHS(r.total ?? r.item.unit_price * r.item.qty, { currency: r.item.currency })}
+                      {formatGHS(r.total ?? r.item.unit_price * r.item.qty, {
+                        currency: r.item.currency,
+                      })}
                     </p>
                   </li>
                 ))}
@@ -200,7 +202,10 @@ function CheckoutPage() {
             {failed.length > 0 && (
               <ul className="mt-4 space-y-2 text-left">
                 {failed.map((r) => (
-                  <li key={r.item.key} className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3">
+                  <li
+                    key={r.item.key}
+                    className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold">{r.item.title}</p>
@@ -212,7 +217,9 @@ function CheckoutPage() {
                       <button
                         onClick={() => {
                           removeFromCart(r.item.key);
-                          setResults((prev) => (prev ?? []).filter((p) => p.item.key !== r.item.key));
+                          setResults((prev) =>
+                            (prev ?? []).filter((p) => p.item.key !== r.item.key),
+                          );
                         }}
                         className="shrink-0 rounded-full border border-border px-3 py-1.5 text-[12px] font-semibold text-muted-foreground hover:border-destructive/40 hover:text-destructive"
                       >
@@ -298,7 +305,9 @@ function CheckoutPage() {
     <AppShell>
       <div className="mx-auto max-w-2xl px-4 py-6 md:px-8 md:py-10">
         <button
-          onClick={() => (step === 0 ? navigate({ to: "/cart" }) : setStep((s) => Math.max(0, s - 1)))}
+          onClick={() =>
+            step === 0 ? navigate({ to: "/cart" }) : setStep((s) => Math.max(0, s - 1))
+          }
           className="mb-4 inline-flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground hover:text-gold"
         >
           <ArrowLeft className="h-3.5 w-3.5" /> {step === 0 ? "Back to cart" : STEPS[step - 1]}
@@ -320,7 +329,9 @@ function CheckoutPage() {
               >
                 {i < step ? <Check className="h-3 w-3" /> : i + 1}
               </span>
-              <span className={i === step ? "text-foreground" : "text-muted-foreground"}>{label}</span>
+              <span className={i === step ? "text-foreground" : "text-muted-foreground"}>
+                {label}
+              </span>
               {i < STEPS.length - 1 && <span className="h-px w-4 bg-border md:w-8" />}
             </li>
           ))}
@@ -342,17 +353,52 @@ function CheckoutPage() {
               </p>
             )}
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <Field label="Full name" value={address.full_name} onChange={(v) => saveAddress({ ...address, full_name: v })} placeholder="Ama Mensah" />
-              <Field label="Phone" value={address.phone} onChange={(v) => saveAddress({ ...address, phone: v })} placeholder="024 000 0000" type="tel" />
-              <Field label="Region" value={address.region} onChange={(v) => saveAddress({ ...address, region: v })} placeholder="Greater Accra" />
-              <Field label="City / Town" value={address.city} onChange={(v) => saveAddress({ ...address, city: v })} placeholder="Accra" />
-              <Field label="Area" value={address.area} onChange={(v) => saveAddress({ ...address, area: v })} placeholder="Osu" />
-              <Field label="Street / landmark" value={address.street} onChange={(v) => saveAddress({ ...address, street: v })} placeholder="Oxford Street, near the junction" />
+              <Field
+                label="Full name"
+                value={address.full_name}
+                onChange={(v) => saveAddress({ ...address, full_name: v })}
+                placeholder="Ama Mensah"
+              />
+              <Field
+                label="Phone"
+                value={address.phone}
+                onChange={(v) => saveAddress({ ...address, phone: v })}
+                placeholder="024 000 0000"
+                type="tel"
+              />
+              <Field
+                label="Region"
+                value={address.region}
+                onChange={(v) => saveAddress({ ...address, region: v })}
+                placeholder="Greater Accra"
+              />
+              <Field
+                label="City / Town"
+                value={address.city}
+                onChange={(v) => saveAddress({ ...address, city: v })}
+                placeholder="Accra"
+              />
+              <Field
+                label="Area"
+                value={address.area}
+                onChange={(v) => saveAddress({ ...address, area: v })}
+                placeholder="Osu"
+              />
+              <Field
+                label="Street / landmark"
+                value={address.street}
+                onChange={(v) => saveAddress({ ...address, street: v })}
+                placeholder="Oxford Street, near the junction"
+              />
             </div>
             <button
               onClick={() => {
                 if (!addressValid()) {
-                  toast.error(anyDelivery ? "Name, phone, region and city are required" : "Name and phone are required");
+                  toast.error(
+                    anyDelivery
+                      ? "Name, phone, region and city are required"
+                      : "Name and phone are required",
+                  );
                   return;
                 }
                 setStep(1);
@@ -407,8 +453,10 @@ function CheckoutPage() {
             </ul>
             {anyDelivery && (
               <p className="mt-3 rounded-xl bg-accent px-3.5 py-2.5 text-[12px] leading-relaxed text-muted-foreground">
-                Delivering to <span className="font-semibold text-foreground">{address.full_name}</span> ·{" "}
-                {[address.area, address.city, address.region].filter(Boolean).join(", ") || "address incomplete"}
+                Delivering to{" "}
+                <span className="font-semibold text-foreground">{address.full_name}</span> ·{" "}
+                {[address.area, address.city, address.region].filter(Boolean).join(", ") ||
+                  "address incomplete"}
               </p>
             )}
             <button
@@ -425,8 +473,8 @@ function CheckoutPage() {
           <section className="pearl-card mt-6 p-5 md:p-6">
             <p className="text-sm font-semibold">Payment terms</p>
             <p className="mt-1 text-[12px] text-muted-foreground">
-              Each seller sets how payment happens. BASIC never charges your card
-              directly — terms are agreed with the seller.
+              Each seller sets how payment happens. BASIC never charges your card directly — terms
+              are agreed with the seller.
             </p>
             <ul className="mt-4 divide-y divide-border">
               {items.map((item) => (
@@ -458,7 +506,14 @@ function CheckoutPage() {
               {items.map((item) => (
                 <li key={item.key} className="flex items-center gap-3 py-3.5">
                   <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-border bg-muted">
-                    {item.image && <img src={item.image} alt="" loading="lazy" className="h-full w-full object-cover" />}
+                    {item.image && (
+                      <img
+                        src={item.image}
+                        alt=""
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{item.title}</p>
@@ -480,7 +535,10 @@ function CheckoutPage() {
               ))}
             </ul>
             <div className="mt-4">
-              <label htmlFor="checkout-notes" className="text-[12px] font-semibold text-muted-foreground">
+              <label
+                htmlFor="checkout-notes"
+                className="text-[12px] font-semibold text-muted-foreground"
+              >
                 Note to sellers (optional)
               </label>
               <textarea
@@ -493,7 +551,9 @@ function CheckoutPage() {
               />
             </div>
             <div className="mt-5 flex items-center justify-between border-t border-border pt-4">
-              <span className="text-sm text-muted-foreground">Total across {items.length} order{items.length === 1 ? "" : "s"}</span>
+              <span className="text-sm text-muted-foreground">
+                Total across {items.length} order{items.length === 1 ? "" : "s"}
+              </span>
               <span className="font-display text-2xl text-foreground">{formatGHS(total)}</span>
             </div>
             <button
@@ -506,15 +566,12 @@ function CheckoutPage() {
                   <Loader2 className="h-4 w-4 animate-spin" /> Placing orders…
                 </>
               ) : (
-                <>
-                  Confirm · {formatGHS(total)}
-                </>
+                <>Confirm · {formatGHS(total)}</>
               )}
             </button>
             <p className="mt-3 text-center text-[11px] leading-relaxed text-muted-foreground">
-              Prices and stock are verified by the server when each order is
-              created. If an item sold out or changed price, that line fails
-              without touching the rest.
+              Prices and stock are verified by the server when each order is created. If an item
+              sold out or changed price, that line fails without touching the rest.
             </p>
           </section>
         )}

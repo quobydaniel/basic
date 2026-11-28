@@ -125,14 +125,23 @@ export function PearlHeader() {
                 );
               }
               return (
-                <Link key={to} to={to} data-active={active} className={active ? CAPSULE_ACTIVE : CAPSULE_IDLE}>
+                <Link
+                  key={to}
+                  to={to}
+                  data-active={active}
+                  className={active ? CAPSULE_ACTIVE : CAPSULE_IDLE}
+                >
                   <Icon className="h-[15px] w-[15px]" strokeWidth={1.7} />
                   {label}
                 </Link>
               );
             })}
             {/* Premium — crown in gold, never loud */}
-            <Link to="/pricing" data-active={pathname.startsWith("/pricing")} className={CAPSULE_IDLE}>
+            <Link
+              to="/pricing"
+              data-active={pathname.startsWith("/pricing")}
+              className={CAPSULE_IDLE}
+            >
               <Crown className="h-[15px] w-[15px] text-gold" strokeWidth={1.7} />
               <span className="text-gold">Premium</span>
             </Link>
@@ -210,7 +219,10 @@ function HeaderSearch() {
       role="search"
       className="relative hidden md:block"
     >
-      <Search className="pointer-events-none absolute left-3.5 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-muted-foreground" strokeWidth={1.7} />
+      <Search
+        className="pointer-events-none absolute left-3.5 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-muted-foreground"
+        strokeWidth={1.7}
+      />
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}
@@ -294,10 +306,25 @@ function AccountMenu() {
           </div>
           <nav className="py-1.5 text-[13px]">
             <MenuLink to="/account" icon={User} label="Profile" onGo={() => setOpen(false)} />
-            <MenuLink to="/orders" icon={ShoppingBag} label="My orders" onGo={() => setOpen(false)} />
+            <MenuLink
+              to="/orders"
+              icon={ShoppingBag}
+              label="My orders"
+              onGo={() => setOpen(false)}
+            />
             <MenuLink to="/favorites" icon={Heart} label="Favorites" onGo={() => setOpen(false)} />
-            <MenuLink to="/account" icon={Settings} label="Account settings" onGo={() => setOpen(false)} />
-            <MenuLink to="/account" icon={Sparkles} label="Switch role" onGo={() => setOpen(false)} />
+            <MenuLink
+              to="/account"
+              icon={Settings}
+              label="Account settings"
+              onGo={() => setOpen(false)}
+            />
+            <MenuLink
+              to="/account"
+              icon={Sparkles}
+              label="Switch role"
+              onGo={() => setOpen(false)}
+            />
             <button
               onClick={signOut}
               className="flex w-full items-center gap-2.5 border-t border-border/60 px-4 py-2.5 text-left text-foreground transition-colors hover:bg-accent hover:text-gold"
@@ -312,7 +339,17 @@ function AccountMenu() {
   );
 }
 
-function MenuLink({ to, icon: Icon, label, onGo }: { to: string; icon: any; label: string; onGo: () => void }) {
+function MenuLink({
+  to,
+  icon: Icon,
+  label,
+  onGo,
+}: {
+  to: string;
+  icon: any;
+  label: string;
+  onGo: () => void;
+}) {
   return (
     <Link
       to={to}
@@ -332,7 +369,10 @@ function PearlMegaDiscover({ open, onClose }: { open: boolean; onClose: () => vo
   const cats = useQuery({
     queryKey: ["cats"],
     queryFn: async () => {
-      const { data } = await supabase.from("categories").select("id, slug, name, parent_id").order("position");
+      const { data } = await supabase
+        .from("categories")
+        .select("id, slug, name, parent_id")
+        .order("position");
       return (data ?? []) as Cat[];
     },
   });
@@ -342,7 +382,9 @@ function PearlMegaDiscover({ open, onClose }: { open: boolean; onClose: () => vo
     queryFn: async () => {
       const { data } = await supabase
         .from("products")
-        .select("id, slug, title, base_price, currency, store:stores(slug, name), product_media(url)")
+        .select(
+          "id, slug, title, base_price, currency, store:stores(slug, name), product_media(url)",
+        )
         .eq("status", "active")
         .order("created_at", { ascending: false })
         .limit(60);
@@ -414,7 +456,9 @@ function PearlMegaDiscover({ open, onClose }: { open: boolean; onClose: () => vo
             Trending Picks
           </p>
           {(trending.data ?? []).length === 0 ? (
-            <p className="py-6 text-center text-[13px] text-muted-foreground">Loading the latest finds…</p>
+            <p className="py-6 text-center text-[13px] text-muted-foreground">
+              Loading the latest finds…
+            </p>
           ) : (
             <div className="grid grid-cols-3 gap-3">
               {(trending.data ?? []).map((p: any) => (
@@ -434,7 +478,9 @@ function PearlMegaDiscover({ open, onClose }: { open: boolean; onClose: () => vo
                     />
                   </div>
                   <div className="p-2">
-                    <p className="line-clamp-1 text-[12px] font-medium text-foreground">{p.title}</p>
+                    <p className="line-clamp-1 text-[12px] font-medium text-foreground">
+                      {p.title}
+                    </p>
                     <p className="mt-0.5 text-[12px] font-bold text-gold">
                       {formatGHS(p.base_price, { currency: p.currency })}
                     </p>
@@ -463,7 +509,17 @@ function PearlMegaDiscover({ open, onClose }: { open: boolean; onClose: () => vo
   );
 }
 
-function QuickLink({ to, icon: Icon, label, onGo }: { to: string; icon: any; label: string; onGo: () => void }) {
+function QuickLink({
+  to,
+  icon: Icon,
+  label,
+  onGo,
+}: {
+  to: string;
+  icon: any;
+  label: string;
+  onGo: () => void;
+}) {
   return (
     <li>
       <Link

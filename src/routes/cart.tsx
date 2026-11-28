@@ -29,7 +29,9 @@ function CartPage() {
           <div>
             <h1 className="font-display text-3xl md:text-4xl">Your cart</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {count === 0 ? "Nothing here yet" : `${count} item${count === 1 ? "" : "s"} from ${byStore.size} store${byStore.size === 1 ? "" : "s"}`}
+              {count === 0
+                ? "Nothing here yet"
+                : `${count} item${count === 1 ? "" : "s"} from ${byStore.size} store${byStore.size === 1 ? "" : "s"}`}
             </p>
           </div>
         </header>
@@ -77,7 +79,12 @@ function CartPage() {
                         className="h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-border bg-muted"
                       >
                         {item.image ? (
-                          <img src={item.image} alt={item.title} loading="lazy" className="h-full w-full object-cover" />
+                          <img
+                            src={item.image}
+                            alt={item.title}
+                            loading="lazy"
+                            className="h-full w-full object-cover"
+                          />
                         ) : null}
                       </Link>
                       <div className="min-w-0 flex-1">
@@ -92,9 +99,7 @@ function CartPage() {
                           ) : null}
                         </Link>
                         <p className="mt-0.5 text-[12px] text-muted-foreground">
-                          {item.delivery_available
-                            ? "Delivery available"
-                            : "Meet seller / pickup"}
+                          {item.delivery_available ? "Delivery available" : "Meet seller / pickup"}
                           {item.payment_type ? ` · ${paymentLabel(item.payment_type)}` : ""}
                         </p>
                         <div className="mt-2.5 flex items-center justify-between gap-3">
@@ -106,7 +111,9 @@ function CartPage() {
                             >
                               <Minus className="h-3.5 w-3.5" />
                             </button>
-                            <span className="w-8 text-center text-sm font-semibold">{item.qty}</span>
+                            <span className="w-8 text-center text-sm font-semibold">
+                              {item.qty}
+                            </span>
                             <button
                               onClick={() => setQty(item.key, item.qty + 1)}
                               aria-label={`Increase ${item.title} quantity`}
@@ -140,9 +147,9 @@ function CartPage() {
                 <span className="font-semibold text-foreground">{formatGHS(total)}</span>
               </div>
               <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-                Delivery and payment terms follow each seller's listing. Checkout
-                creates one order per item through BASIC's server-side ordering —
-                prices and stock are verified by the server at confirmation.
+                Delivery and payment terms follow each seller's listing. Checkout creates one order
+                per item through BASIC's server-side ordering — prices and stock are verified by the
+                server at confirmation.
               </p>
               <Link
                 to="/checkout"
@@ -160,9 +167,13 @@ function CartPage() {
 
 export function paymentLabel(term: string | null): string {
   switch (term) {
-    case "on_delivery": return "Pay on delivery";
-    case "escrow": return "Escrow";
-    case "before_delivery": return "Pay before delivery";
-    default: return "Settled with seller";
+    case "on_delivery":
+      return "Pay on delivery";
+    case "escrow":
+      return "Escrow";
+    case "before_delivery":
+      return "Pay before delivery";
+    default:
+      return "Settled with seller";
   }
 }

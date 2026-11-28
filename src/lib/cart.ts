@@ -67,9 +67,7 @@ if (typeof window !== "undefined") {
 }
 
 export function addToCart(item: Omit<CartItem, "key"> & { key?: string }) {
-  const key =
-    item.key ??
-    `${item.product_id}::${item.variant_title ?? ""}`;
+  const key = item.key ?? `${item.product_id}::${item.variant_title ?? ""}`;
   const existing = items.find((i) => i.key === key);
   if (existing) {
     setQty(key, Math.min(existing.qty + item.qty, MAX_QTY));

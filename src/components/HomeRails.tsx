@@ -110,7 +110,12 @@ export function StoriesRail() {
               >
                 <span className="grid h-full w-full place-items-center rounded-full bg-background p-[3px]">
                   {g.logo_url ? (
-                    <img src={g.logo_url} alt="" loading="lazy" className="h-full w-full rounded-full object-cover" />
+                    <img
+                      src={g.logo_url}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full rounded-full object-cover"
+                    />
                   ) : (
                     <span className="grid h-full w-full place-items-center rounded-full bg-muted font-display text-lg text-foreground">
                       {g.store_name.slice(0, 1)}
@@ -150,7 +155,9 @@ export function ShortsRail() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("shorts")
-        .select("id, caption, media_url, media_type, product:products(title, slug), store:stores(slug, name)")
+        .select(
+          "id, caption, media_url, media_type, product:products(title, slug), store:stores(slug, name)",
+        )
         .order("created_at", { ascending: false })
         .limit(10);
       if (error) throw error;
@@ -199,7 +206,12 @@ export function ShortsRail() {
                     onMouseLeave={(e) => e.currentTarget.pause()}
                   />
                 ) : (
-                  <img src={s.media_url} alt={s.caption ?? ""} loading="lazy" className="h-full w-full object-cover" />
+                  <img
+                    src={s.media_url}
+                    alt={s.caption ?? ""}
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
                 )}
                 {isVideo && (
                   <span className="pointer-events-none absolute right-2.5 top-2.5 grid h-7 w-7 place-items-center rounded-full bg-black/55 text-white backdrop-blur">

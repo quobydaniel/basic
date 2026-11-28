@@ -37,7 +37,13 @@ type ProductCard = {
   product_media: { url: string }[];
 };
 
-type Category = { id: string; slug: string; name: string; icon: string | null; parent_id: string | null };
+type Category = {
+  id: string;
+  slug: string;
+  name: string;
+  icon: string | null;
+  parent_id: string | null;
+};
 
 /* Collections browser — houses on the rail, their sub-collections beneath. */
 function CategoryIndex({ categories }: { categories?: Category[] }) {
@@ -58,10 +64,15 @@ function CategoryIndex({ categories }: { categories?: Category[] }) {
               key={c.id}
               onClick={() => setOpenId(open ? null : c.id)}
               className={`whitespace-nowrap rounded-full border px-5 py-2 text-[12px] font-semibold uppercase tracking-[0.16em] transition-colors ${
-                open ? "border-gold bg-gold/10 text-gold" : "border-border bg-card text-muted-foreground hover:border-gold/50 hover:text-gold"
+                open
+                  ? "border-gold bg-gold/10 text-gold"
+                  : "border-border bg-card text-muted-foreground hover:border-gold/50 hover:text-gold"
               }`}
             >
-              {c.name}{kids.length > 0 && <span className="ml-1.5 text-[10px] opacity-60">+{kids.length}</span>}
+              {c.name}
+              {kids.length > 0 && (
+                <span className="ml-1.5 text-[10px] opacity-60">+{kids.length}</span>
+              )}
             </button>
           );
         })}
@@ -126,7 +137,9 @@ function MarketplaceHome() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("products")
-        .select("id, slug, title, base_price, currency, store:stores(slug, name, area, city), product_media(url)")
+        .select(
+          "id, slug, title, base_price, currency, store:stores(slug, name, area, city), product_media(url)",
+        )
         .eq("status", "active")
         .order("created_at", { ascending: false })
         .limit(12);
@@ -180,9 +193,9 @@ function MarketplaceHome() {
                 Shopping made <span className="gold-text italic">golden</span>.
               </h1>
               <p className="mx-auto mt-4 max-w-md text-[14px] leading-relaxed text-muted-foreground md:mt-6 md:text-[15px]">
-                Sellers open a storefront in minutes and reach buyers in every
-                region. Buyers shop thousands of Ghana-made finds — pay with
-                Mobile Money or card, delivered to your door.
+                Sellers open a storefront in minutes and reach buyers in every region. Buyers shop
+                thousands of Ghana-made finds — pay with Mobile Money or card, delivered to your
+                door.
               </p>
               {/* Hero search — the buyer's fastest path, front and center
                   (the masthead no longer carries a search button). Enter or
@@ -216,7 +229,10 @@ function MarketplaceHome() {
                   className="group inline-flex items-center gap-2.5 rounded-full bg-gold px-6 py-2.5 text-[12px] font-bold uppercase tracking-[0.22em] text-gold-foreground transition-all duration-300 hover:shadow-[0_0_36px_-6px_var(--gold)] md:px-7 md:py-3"
                 >
                   Start shopping
-                  <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" strokeWidth={2.2} />
+                  <ArrowRight
+                    className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1"
+                    strokeWidth={2.2}
+                  />
                 </Link>
                 <Link
                   to="/auth"
@@ -239,7 +255,12 @@ function MarketplaceHome() {
                   >
                     <div className="h-28 w-full overflow-hidden bg-muted">
                       {p.product_media?.[0]?.url && (
-                        <img src={p.product_media[0].url} alt="" loading="lazy" className="h-full w-full object-cover transition duration-700 group-hover:scale-105" />
+                        <img
+                          src={p.product_media[0].url}
+                          alt=""
+                          loading="lazy"
+                          className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
+                        />
                       )}
                     </div>
                     <div className="px-3 py-3 text-left">
@@ -269,65 +290,79 @@ function MarketplaceHome() {
 
       {/* Featured stores */}
       <Reveal>
-        <SectionHeader eyebrow="The houses" title="Featured storefronts" to="/stores" icon={<TrendingUp className="h-4 w-4" />} />
+        <SectionHeader
+          eyebrow="The houses"
+          title="Featured storefronts"
+          to="/stores"
+          icon={<TrendingUp className="h-4 w-4" />}
+        />
       </Reveal>
       <div className="no-scrollbar mt-4 flex gap-4 overflow-x-auto px-4 pb-2 md:grid md:grid-cols-3 md:overflow-visible md:px-8">
         {stores.isLoading &&
           Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-56 w-72 shrink-0 animate-pulse rounded-3xl bg-muted md:w-auto" />
+            <div
+              key={i}
+              className="h-56 w-72 shrink-0 animate-pulse rounded-3xl bg-muted md:w-auto"
+            />
           ))}
         {featuredStores.map((s: any, i: number) => (
           <Reveal key={s.id} delay={i * 90} className="shrink-0 md:w-auto">
             {(() => {
               const hasStory = (storyStores.data?.[s.id] ?? 0) > 0;
               return (
-            <Link
-              to="/s/$storeSlug"
-              params={{ storeSlug: s.slug }}
-              search={hasStory ? ({ story: "1" } as any) : undefined}
-              title={hasStory ? `${s.name} has a live story — tap to watch` : undefined}
-              className="group relative block h-56 w-72 overflow-hidden rounded-3xl border border-border bg-card transition-all duration-500 hover:border-gold/50 hover:shadow-[0_24px_60px_-24px_oklch(0.80_0.11_85/0.35)] md:w-auto"
-            >
-              {s.plan === "pro" && (
-                <span className="absolute right-3 top-3 z-10 rounded-full bg-gild px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-gild-foreground shadow-md">
-                  Featured
-                </span>
-              )}
-              {s.banner_url && (
-                <img
-                  src={s.banner_url}
-                  alt={s.name}
-                  loading="lazy"
-                  className="absolute inset-0 h-full w-full object-cover opacity-90 transition-all duration-700 group-hover:scale-105 group-hover:opacity-100"
-                />
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
-              <div className="absolute inset-x-4 bottom-4 flex items-center gap-3 text-white">
-                {s.logo_url && (hasStory ? (
-                  <span
-                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full p-[2px]"
-                    style={{ background: "conic-gradient(from 210deg, var(--gold), color-mix(in oklab, var(--gold), white 45%) 50%, var(--gold))" }}
-                  >
+                <Link
+                  to="/s/$storeSlug"
+                  params={{ storeSlug: s.slug }}
+                  search={hasStory ? ({ story: "1" } as any) : undefined}
+                  title={hasStory ? `${s.name} has a live story — tap to watch` : undefined}
+                  className="group relative block h-56 w-72 overflow-hidden rounded-3xl border border-border bg-card transition-all duration-500 hover:border-gold/50 hover:shadow-[0_24px_60px_-24px_oklch(0.80_0.11_85/0.35)] md:w-auto"
+                >
+                  {s.plan === "pro" && (
+                    <span className="absolute right-3 top-3 z-10 rounded-full bg-gild px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] text-gild-foreground shadow-md">
+                      Featured
+                    </span>
+                  )}
+                  {s.banner_url && (
                     <img
-                      src={s.logo_url}
-                      alt=""
+                      src={s.banner_url}
+                      alt={s.name}
                       loading="lazy"
-                      className="h-full w-full rounded-full border border-gild/40 object-cover"
+                      className="absolute inset-0 h-full w-full object-cover opacity-90 transition-all duration-700 group-hover:scale-105 group-hover:opacity-100"
                     />
-                  </span>
-                ) : (
-                  <img
-                    src={s.logo_url}
-                    alt=""
-                    className="h-10 w-10 rounded-full border border-gild/50 object-cover"
-                  />
-                ))}
-                <div className="min-w-0">
-                  <p className="truncate font-display text-lg leading-tight">{s.name}</p>
-                  <p className="truncate text-[11px] uppercase tracking-[0.18em] text-white/70">{s.tagline}</p>
-                </div>
-              </div>
-            </Link>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
+                  <div className="absolute inset-x-4 bottom-4 flex items-center gap-3 text-white">
+                    {s.logo_url &&
+                      (hasStory ? (
+                        <span
+                          className="grid h-10 w-10 shrink-0 place-items-center rounded-full p-[2px]"
+                          style={{
+                            background:
+                              "conic-gradient(from 210deg, var(--gold), color-mix(in oklab, var(--gold), white 45%) 50%, var(--gold))",
+                          }}
+                        >
+                          <img
+                            src={s.logo_url}
+                            alt=""
+                            loading="lazy"
+                            className="h-full w-full rounded-full border border-gild/40 object-cover"
+                          />
+                        </span>
+                      ) : (
+                        <img
+                          src={s.logo_url}
+                          alt=""
+                          className="h-10 w-10 rounded-full border border-gild/50 object-cover"
+                        />
+                      ))}
+                    <div className="min-w-0">
+                      <p className="truncate font-display text-lg leading-tight">{s.name}</p>
+                      <p className="truncate text-[11px] uppercase tracking-[0.18em] text-white/70">
+                        {s.tagline}
+                      </p>
+                    </div>
+                  </div>
+                </Link>
               );
             })()}
           </Reveal>
@@ -350,7 +385,11 @@ function MarketplaceHome() {
 
       {/* Just dropped grid — infinite feed, Jiji/Temu style */}
       <Reveal>
-        <SectionHeader eyebrow="Recent acquisitions" title="Just arrived" icon={<Sparkles className="h-4 w-4" />} />
+        <SectionHeader
+          eyebrow="Recent acquisitions"
+          title="Just arrived"
+          icon={<Sparkles className="h-4 w-4" />}
+        />
       </Reveal>
       <HomeFeed />
 
@@ -370,8 +409,8 @@ function MarketplaceHome() {
                 Your craft, presented properly.
               </h3>
               <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                Accept Mobile Money and cards with Paystack. Sync your catalog to
-                Instagram, TikTok Shop, and WhatsApp.
+                Accept Mobile Money and cards with Paystack. Sync your catalog to Instagram, TikTok
+                Shop, and WhatsApp.
               </p>
             </div>
             <Link
@@ -380,7 +419,10 @@ function MarketplaceHome() {
               className="group inline-flex w-fit items-center gap-2.5 rounded-full bg-gold px-7 py-3 text-[12px] font-bold uppercase tracking-[0.22em] text-gold-foreground transition-all duration-300 hover:shadow-[0_0_36px_-6px_var(--gold)]"
             >
               Begin
-              <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" strokeWidth={2.2} />
+              <ArrowRight
+                className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1"
+                strokeWidth={2.2}
+              />
             </Link>
           </div>
         </section>
@@ -395,7 +437,17 @@ function MarketplaceHome() {
   );
 }
 
-function SectionHeader({ eyebrow, title, icon, to = "/discover" }: { eyebrow: string; title: string; icon?: React.ReactNode; to?: string }) {
+function SectionHeader({
+  eyebrow,
+  title,
+  icon,
+  to = "/discover",
+}: {
+  eyebrow: string;
+  title: string;
+  icon?: React.ReactNode;
+  to?: string;
+}) {
   return (
     <div className="mt-12 flex items-end justify-between px-4 md:mt-16 md:px-8">
       <div>
@@ -446,7 +498,9 @@ export function ProductCardTile({ p }: { p: ProductCard }) {
         <p className="line-clamp-1 font-display text-[16px]">{p.title}</p>
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-gold">
-            {(p as any).negotiable ? "Chat for price" : formatGHS(p.base_price, { currency: p.currency })}
+            {(p as any).negotiable
+              ? "Chat for price"
+              : formatGHS(p.base_price, { currency: p.currency })}
           </p>
           <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
             <Star className="h-3 w-3 fill-gild text-gild" />
@@ -459,7 +513,6 @@ export function ProductCardTile({ p }: { p: ProductCard }) {
   );
 }
 
-
 /* Special offers — real compare_at_price listings. PostgREST can't compare
    two columns server-side, so a recent window is fetched and filtered here. */
 function OffersSection() {
@@ -469,7 +522,9 @@ function OffersSection() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("products")
-        .select("id, slug, title, base_price, compare_at_price, currency, store:stores(slug, name, area, city), product_media(url)")
+        .select(
+          "id, slug, title, base_price, compare_at_price, currency, store:stores(slug, name, area, city), product_media(url)",
+        )
         .eq("status", "active")
         .not("compare_at_price", "is", null)
         .order("created_at", { ascending: false })
@@ -477,7 +532,11 @@ function OffersSection() {
       if (error) throw error;
       return ((data ?? []) as unknown as (ProductCard & { compare_at_price: number | null })[])
         .filter((p) => p.compare_at_price != null && p.compare_at_price > p.base_price)
-        .sort((a, b) => (b.compare_at_price! - b.base_price) / b.compare_at_price! - (a.compare_at_price! - a.base_price) / a.compare_at_price!)
+        .sort(
+          (a, b) =>
+            (b.compare_at_price! - b.base_price) / b.compare_at_price! -
+            (a.compare_at_price! - a.base_price) / a.compare_at_price!,
+        )
         .slice(0, 8);
     },
   });
@@ -508,7 +567,12 @@ function OffersSection() {
             >
               <div className="relative aspect-[4/5] overflow-hidden rounded-xl border border-border bg-muted transition-colors duration-300 group-hover:border-gold/50">
                 {img && (
-                  <img src={img} alt={p.title} loading="lazy" className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                  <img
+                    src={img}
+                    alt={p.title}
+                    loading="lazy"
+                    className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                  />
                 )}
                 <span className="absolute left-1.5 top-1.5 rounded-full bg-gild px-2 py-px text-[9px] font-bold uppercase tracking-[0.12em] text-gild-foreground">
                   −{save}%
@@ -518,11 +582,17 @@ function OffersSection() {
                 </div>
               </div>
               <div className="mt-2.5">
-                <p className="line-clamp-1 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{p.store?.name}</p>
+                <p className="line-clamp-1 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                  {p.store?.name}
+                </p>
                 <p className="line-clamp-1 font-display text-[16px]">{p.title}</p>
                 <p className="mt-0.5 flex items-baseline gap-2">
-                  <span className="text-[13px] font-bold text-gold">{formatGHS(p.base_price, { currency: p.currency })}</span>
-                  <span className="text-[11px] text-muted-foreground line-through">{formatGHS(p.compare_at_price!, { currency: p.currency })}</span>
+                  <span className="text-[13px] font-bold text-gold">
+                    {formatGHS(p.base_price, { currency: p.currency })}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground line-through">
+                    {formatGHS(p.compare_at_price!, { currency: p.currency })}
+                  </span>
                 </p>
               </div>
             </Link>
@@ -572,7 +642,9 @@ function RecommendedSection() {
         if (ids.length) {
           const { data } = await supabase
             .from("products")
-            .select("id, slug, title, base_price, currency, store:stores(slug, name, area, city), product_media(url)")
+            .select(
+              "id, slug, title, base_price, currency, store:stores(slug, name, area, city), product_media(url)",
+            )
             .eq("status", "active")
             .in("store_id", ids)
             .order("created_at", { ascending: false })
@@ -582,7 +654,9 @@ function RecommendedSection() {
       }
       const { data } = await supabase
         .from("products")
-        .select("id, slug, title, base_price, currency, store:stores(slug, name, area, city), product_media(url)")
+        .select(
+          "id, slug, title, base_price, currency, store:stores(slug, name, area, city), product_media(url)",
+        )
         .eq("status", "active")
         .order("created_at", { ascending: false })
         .limit(8);
@@ -632,7 +706,9 @@ function HomeFeed() {
       {feed.hasMore && !feed.loading && (
         <div ref={feed.sentinelRef} className="col-span-full flex items-center justify-center py-6">
           {feed.appending ? (
-            <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Loading more…</span>
+            <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+              Loading more…
+            </span>
           ) : (
             <button
               onClick={() => void feed.loadMore()}

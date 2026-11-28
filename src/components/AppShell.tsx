@@ -1,7 +1,17 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { Home, Search, MessageCircle, User, Bike, ShieldCheck, ArrowUpRight, Store, Sparkles } from "lucide-react";
+import {
+  Home,
+  Search,
+  MessageCircle,
+  User,
+  Bike,
+  ShieldCheck,
+  ArrowUpRight,
+  Store,
+  Sparkles,
+} from "lucide-react";
 import { useSession } from "@/lib/session";
 import { FloatingBuyerAssistant } from "@/components/FloatingBuyerAssistant";
 import { PearlHeader } from "@/components/PearlHeader";
@@ -20,13 +30,7 @@ const tabs = [
   { to: "/account", label: "Profile", icon: User },
 ] as const;
 
-export function AppShell({
-  children,
-  productId,
-}: {
-  children: ReactNode;
-  productId?: string;
-}) {
+export function AppShell({ children, productId }: { children: ReactNode; productId?: string }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   // Chat is an app-like surface: the shell owns the whole viewport — no
   // masthead, no footer, no bottom tab bar. The conversation list carries
@@ -45,17 +49,24 @@ export function AppShell({
   // The concierge rides every buyer surface — the AI tab in the bottom bar
   // must open it from anywhere, including the inbox and the account hub.
   const context: "home" | "discover" | "product" | "orders" | "favorites" | "stores" =
-    pathname.startsWith("/discover") ? "discover"
-    : pathname.startsWith("/s/") ? "product"
-    : pathname.startsWith("/orders") ? "orders"
-    : pathname.startsWith("/favorites") ? "favorites"
-    : pathname.startsWith("/stores") ? "stores"
-    : "home";
+    pathname.startsWith("/discover")
+      ? "discover"
+      : pathname.startsWith("/s/")
+        ? "product"
+        : pathname.startsWith("/orders")
+          ? "orders"
+          : pathname.startsWith("/favorites")
+            ? "favorites"
+            : pathname.startsWith("/stores")
+              ? "stores"
+              : "home";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       {!isChat && <PearlHeader />}
-      <main className={isChat ? "" : "mx-auto max-w-2xl md:max-w-6xl pb-28 md:pb-16"}>{children}</main>
+      <main className={isChat ? "" : "mx-auto max-w-2xl md:max-w-6xl pb-28 md:pb-16"}>
+        {children}
+      </main>
       {/* Footer lives ONLY on the Account page now — every other surface
           stays content-first (Jiji/Temu pattern). */}
       {!isProductDetail && !isSellerChat && !isBuyerChatThread && <BottomTabBar />}
@@ -112,8 +123,7 @@ function BottomTabBar() {
   const { user } = useSession();
   const unread = useUnreadChats(user?.id);
 
-  const openConcierge = () =>
-    window.dispatchEvent(new CustomEvent("basic:assistant:open"));
+  const openConcierge = () => window.dispatchEvent(new CustomEvent("basic:assistant:open"));
 
   const tabLink = ({ to, label, icon: Icon }: (typeof tabs)[number]) => {
     const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
@@ -179,19 +189,40 @@ export function SiteFooter() {
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-12 md:grid-cols-[1.4fr_1fr_1fr_1fr] md:px-8">
         <div>
           <Link to="/" className="inline-block">
-            <span className="font-display text-xl leading-none tracking-[0.32em] text-foreground">B A S I C</span>
+            <span className="font-display text-xl leading-none tracking-[0.32em] text-foreground">
+              B A S I C
+            </span>
             <span className="mt-1.5 block h-px w-14 bg-gradient-to-r from-transparent via-gold to-transparent" />
           </Link>
           <p className="mt-3 max-w-xs text-[13px] leading-relaxed text-muted-foreground">
-            Objects of consequence from Ghana's independent makers. Presented
-            properly, delivered with care.
+            Objects of consequence from Ghana's independent makers. Presented properly, delivered
+            with care.
           </p>
         </div>
-        <FooterCol title="House" links={[["/discover", "Discover"], ["/stores", "Stores"], ["/chat", "Chats"], ["/orders", "Orders"], ["/favorites", "Favorites"]]} />
-        <FooterCol title="Company" links={[["/pricing", "BASIC Premium"], ["/chat", "Message us"]]} />
+        <FooterCol
+          title="House"
+          links={[
+            ["/discover", "Discover"],
+            ["/stores", "Stores"],
+            ["/chat", "Chats"],
+            ["/orders", "Orders"],
+            ["/favorites", "Favorites"],
+          ]}
+        />
+        <FooterCol
+          title="Company"
+          links={[
+            ["/pricing", "BASIC Premium"],
+            ["/chat", "Message us"],
+          ]}
+        />
         <FooterCol
           title="Professionals"
-          links={[["/auth?mode=sell", "Consign with us", Store], ["/rider", "Deliver with BASIC", Bike], ["/quoby", "Admin console", ShieldCheck]]}
+          links={[
+            ["/auth?mode=sell", "Consign with us", Store],
+            ["/rider", "Deliver with BASIC", Bike],
+            ["/quoby", "Admin console", ShieldCheck],
+          ]}
         />
       </div>
       <div className="border-t border-border/40">
@@ -206,11 +237,16 @@ export function SiteFooter() {
 function FooterCol({ title, links }: { title: string; links: [string, string, any?][] }) {
   return (
     <div>
-      <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">{title}</p>
+      <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+        {title}
+      </p>
       <ul className="space-y-2">
         {links.map(([to, label, Icon]) => (
           <li key={to}>
-            <Link to={to} className="group inline-flex items-center gap-1.5 text-[13px] text-foreground/80 transition-colors hover:text-gold">
+            <Link
+              to={to}
+              className="group inline-flex items-center gap-1.5 text-[13px] text-foreground/80 transition-colors hover:text-gold"
+            >
               {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground group-hover:text-gold" />}
               {label}
               <ArrowUpRight className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />

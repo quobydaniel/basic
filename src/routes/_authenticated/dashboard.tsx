@@ -1,7 +1,21 @@
 import { createFileRoute, Link, Outlet, redirect, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { LayoutDashboard, Package, ShoppingCart, Palette, Settings, Home, MessageCircle, CirclePlay, Clapperboard } from "lucide-react";
+import {
+  LayoutDashboard,
+  Package,
+  ShoppingCart,
+  Palette,
+  Settings,
+  Home,
+  MessageCircle,
+  CirclePlay,
+  Clapperboard,
+  Bot,
+  Sparkles,
+  Bike,
+  Users,
+} from "lucide-react";
 import { FloatingAIAssistant } from "@/components/FloatingAIAssistant";
 import { supabase } from "@/integrations/supabase/client";
 import { autoPilotReply } from "@/lib/ai.functions";
@@ -10,16 +24,18 @@ import { useSession } from "@/lib/session";
 import { acquireAutoPilot, releaseAutoPilot } from "@/lib/autopilot-lock";
 
 type NavItem = { to: string; label: string; icon: typeof LayoutDashboard; exact?: boolean };
-// Deliveries / Affiliate / AI Studio / Channels are parked until their flows
-// ship — the routes still exist but stay out of the navigation.
 const items: NavItem[] = [
   { to: "/dashboard", label: "Home", icon: LayoutDashboard, exact: true },
   { to: "/dashboard/products", label: "Products", icon: Package },
   { to: "/dashboard/orders", label: "Orders", icon: ShoppingCart },
   { to: "/dashboard/chats", label: "Chats", icon: MessageCircle },
+  { to: "/dashboard/autopilot", label: "Autopilot", icon: Bot },
+  { to: "/dashboard/ai", label: "AI Studio", icon: Sparkles },
   { to: "/dashboard/stories", label: "Stories", icon: CirclePlay },
   { to: "/dashboard/shorts", label: "Shorts", icon: Clapperboard },
   { to: "/dashboard/storefront", label: "Storefront", icon: Palette },
+  { to: "/dashboard/affiliate", label: "Affiliate", icon: Users },
+  { to: "/dashboard/deliveries", label: "Deliveries", icon: Bike },
   { to: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
@@ -42,7 +58,10 @@ function SellerAutoPilot() {
     async function tick() {
       if (stopped) return;
       try {
-        const { data: stores } = await supabase.from("stores").select("id").eq("owner_id", user!.id);
+        const { data: stores } = await supabase
+          .from("stores")
+          .select("id")
+          .eq("owner_id", user!.id);
         const ids = (stores ?? []).map((st: any) => st.id);
         if (!ids.length) return;
         const { data: convos } = await supabase
@@ -117,7 +136,9 @@ function DashboardLayout() {
         <aside className="hidden border-r border-border md:block">
           <div className="sticky top-0 flex h-screen flex-col p-5">
             <Link to="/" className="mb-8 flex items-center gap-2">
-              <span className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground font-display">S</span>
+              <span className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground font-display">
+                S
+              </span>
               <span className="font-display text-lg">BASIC</span>
             </Link>
             <nav className="flex flex-col gap-1">
@@ -137,7 +158,10 @@ function DashboardLayout() {
               })}
             </nav>
             <div className="mt-auto">
-              <Link to="/" className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-muted-foreground hover:bg-accent">
+              <Link
+                to="/"
+                className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs text-muted-foreground hover:bg-accent"
+              >
                 <Home className="h-3.5 w-3.5" /> Back to marketplace
               </Link>
             </div>
@@ -147,7 +171,9 @@ function DashboardLayout() {
         <div className="min-w-0">
           <div className="sticky top-0 z-30 flex items-center gap-2 border-b border-border bg-background/85 px-4 py-3 backdrop-blur md:hidden">
             <Link to="/" className="flex items-center gap-2">
-              <span className="grid h-7 w-7 place-items-center rounded-full bg-primary text-primary-foreground font-display text-sm">B</span>
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-primary text-primary-foreground font-display text-sm">
+                B
+              </span>
               <span className="font-display text-base">Seller</span>
             </Link>
           </div>
@@ -155,25 +181,28 @@ function DashboardLayout() {
 
           {/* Full nav incl. Settings — a phone-only seller must still reach
               Paystack keys, AI persona and WhatsApp number; Stories + Shorts
-              stay thumb-reachable for posting on the go. */}
+              stay thumb-reachable for posting on the go. Twelve destinations
+              don't fit a fixed grid — the bar scrolls horizontally instead. */}
           <nav
-            className="fixed inset-x-0 bottom-0 z-40 grid border-t border-border bg-background/95 backdrop-blur md:hidden"
-            style={{ paddingBottom: "env(safe-area-inset-bottom)", gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+            className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 backdrop-blur md:hidden"
+            style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
           >
-            {items.map(({ to, label, icon: Icon, exact }) => {
-              const active = exact ? pathname === to : pathname.startsWith(to);
-              return (
-                <Link
-                  key={to}
-                  to={to}
-                  className="flex flex-col items-center gap-1 py-2.5 text-[10px] font-medium text-muted-foreground data-[active=true]:text-foreground"
-                  data-active={active}
-                >
-                  <Icon className="h-4 w-4" />
-                  {label}
-                </Link>
-              );
-            })}
+            <div className="no-scrollbar flex overflow-x-auto">
+              {items.map(({ to, label, icon: Icon, exact }) => {
+                const active = exact ? pathname === to : pathname.startsWith(to);
+                return (
+                  <Link
+                    key={to}
+                    to={to}
+                    className="flex min-w-[72px] flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium text-muted-foreground data-[active=true]:text-foreground"
+                    data-active={active}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
           </nav>
         </div>
       </div>
